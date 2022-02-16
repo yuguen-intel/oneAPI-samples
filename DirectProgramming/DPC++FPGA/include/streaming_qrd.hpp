@@ -220,8 +220,8 @@ struct StreamingQRD {
       ac_int<kIBitSize, true> i = -1;
       ac_int<kJBitSize, true> j = 0;
 
-      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      [[intel::ivdep(raw_latency)]]       // NO-FORMAT: Attribute
+      // [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
+      // [[intel::ivdep(raw_latency)]]       // NO-FORMAT: Attribute
       for (int s = 0; s < kIterations; s++) {
         // Pre-compute the next values of i and j
         ac_int<kIBitSize, true> next_i;
@@ -359,7 +359,7 @@ struct StreamingQRD {
         // Compute the value of -s[j]
         TT s_j;
         if constexpr (is_complex) {
-          s_j = TT{0.0f - (p_ij.r()) / pip1, p_ij.i() / pip1};
+          s_j = TT{T{0.0} - (p_ij.r()) / pip1, p_ij.i() / pip1};
         } else {
           s_j = -p_ij / pip1;
         }
@@ -369,7 +369,7 @@ struct StreamingQRD {
         if (j >= 0) {
           if constexpr (is_complex) {
             s_or_ir[j] =
-                TT{j == i + 1 ? ir : s_j.r(), j == i + 1 ? 0.0f : s_j.i()};
+                TT{j == i + 1 ? ir : s_j.r(), j == i + 1 ? T{0.0} : s_j.i()};
           } else {
             s_or_ir[j] = j == i + 1 ? ir : s_j;
           }

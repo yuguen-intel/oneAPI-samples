@@ -20,7 +20,7 @@ if(WIN32)
     set(PLATFORM_SPECIFIC_LINK_FLAGS "/Qactypes")
 else()
     set(PLATFORM_SPECIFIC_COMPILE_FLAGS "-qactypes -Wall")
-    set(PLATFORM_SPECIFIC_LINK_FLAGS "")
+    set(PLATFORM_SPECIFIC_LINK_FLAGS "-qactypes")
 endif()
 
 
