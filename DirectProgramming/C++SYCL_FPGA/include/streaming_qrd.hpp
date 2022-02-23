@@ -7,6 +7,35 @@
 
 namespace fpga_linalg {
 
+template <unsigned int num, unsigned int denom>
+constexpr int ceil_div(){
+  return (num % denom) ? (num / denom) + 1 : num / denom;
+}
+
+template<typename T, int max_fanout, int output_size>
+fpga_tools::NTuple<T, output_size> fanout_tree(T value){
+
+  fpga_tools::NTuple<T, output_size> output;
+
+  if constexpr (output_size > max_fanout){
+    constexpr int kNextLevelSize = ceil_div<output_size, max_fanout>();
+    auto next_level = sycl::ext::intel::fpga_reg(fanout_tree<T, max_fanout, kNextLevelSize>(value));
+    
+    fpga_tools::UnrolledLoop<output_size>([&](auto k) {
+      output.template get<k>() = next_level.template get<k/max_fanout>();
+    });
+
+  }
+  else{
+    fpga_tools::UnrolledLoop<output_size>([&](auto k) {
+      output.template get<k>() = value;
+    });
+  }
+  
+  return output;
+}
+
+
 /*
   QRD (QR decomposition) - Computes Q and R matrices such that A=QR where:
   - A is the input matrix
@@ -100,11 +129,6 @@ struct StreamingQRD {
     constexpr int kRMatrixSize = columns * (columns + 1) / 2;
     // Fanout reduction factor for signals that fanout to rows compute cores
     constexpr int kFanoutReduction = 8;
-    // Number of signal replication required to cover all the rows compute cores
-    // given a kFanoutReduction factor
-    constexpr int kBanksForFanout = (rows % kFanoutReduction)
-                                        ? (rows / kFanoutReduction) + 1
-                                        : rows / kFanoutReduction;
 
     // Number of iterations performed without any dummy work added for the
     // triangular loop optimization
@@ -266,62 +290,42 @@ struct StreamingQRD {
         TT col[rows];
         TT col1[rows];
 
-        // Current value of s_or_ir depending on the value of j
-        // It is replicated kFanoutReduction times to reduce fanout
-        TT s_or_ir_j[kBanksForFanout];
-
-        // All the control signals are precomputed and replicated
-        // kFanoutReduction times to reduce fanout
-        bool j_eq_i[kBanksForFanout], i_gt_0[kBanksForFanout],
-            i_ge_0_j_ge_i[kBanksForFanout], j_eq_i_plus_1[kBanksForFanout],
-            i_lt_0[kBanksForFanout], j_ge_0[kBanksForFanout];
-
-        fpga_tools::UnrolledLoop<kBanksForFanout>([&](auto k) {
-          i_gt_0[k] = sycl::ext::intel::fpga_reg(i > 0);
-          i_lt_0[k] = sycl::ext::intel::fpga_reg(i < 0);
-          j_eq_i[k] = sycl::ext::intel::fpga_reg(j == i);
-          j_ge_0[k] = sycl::ext::intel::fpga_reg(j >= 0);
-          i_ge_0_j_ge_i[k] = sycl::ext::intel::fpga_reg(i >= 0 && j >= i);
-          j_eq_i_plus_1[k] = sycl::ext::intel::fpga_reg(j == i + 1);
-          if (j >= 0) {
-            s_or_ir_j[k] = sycl::ext::intel::fpga_reg(s_or_ir[j]);
-          }
-        });
+        auto s_or_ir_j = fanout_tree<TT, kFanoutReduction, rows>(s_or_ir[j]);
+        auto j_eq_i = fanout_tree<bool, kFanoutReduction, rows>(j == i);
+	auto j_ge_0 = fanout_tree<bool, kFanoutReduction, rows>(j >= 0);
+        auto i_gt_0 = fanout_tree<bool, kFanoutReduction, rows>(i > 0);
+        auto i_ge_0_j_ge_i = fanout_tree<bool, kFanoutReduction, rows>(i >= 0 && j >= i);
+        auto j_eq_i_plus_1 = fanout_tree<bool, kFanoutReduction, rows>(j == i + 1);
+        auto i_lt_0 = fanout_tree<bool, kFanoutReduction, rows>(i < 0);
 
         // Preload col and a_i with the correct data for the current iteration
         // These are going to be use to compute the dot product of two
         // different columns of the input matrix.
         fpga_tools::UnrolledLoop<rows>([&](auto k) {
-          // find which fanout bank this unrolled iteration is going to use
-          constexpr auto fanout_bank_idx = k / kFanoutReduction;
 
           // Load col with the current column of matrix A.
           // At least one iteration of the outer loop i is required
           // for the "working copy" a_compute to contain data.
           // If no i iteration elapsed, we must read the column of
           // matrix A directly from the a_load; col then contains a_j
-
-          if (i_gt_0[fanout_bank_idx] && j_ge_0[fanout_bank_idx]) {
+          if (i_gt_0.template get<k>() && j_ge_0.template get<k>()) {
             col[k] = a_compute[j].template get<k>();
           }
           // Using an else statement makes the compiler throw an
           // inexplicable warning when using non complex types:
           // "Compiler Warning: Memory instruction with unresolved
           // pointer may lead to bad QoR."
-          if (!i_gt_0[fanout_bank_idx] && j_ge_0[fanout_bank_idx]) {
+          if (!i_gt_0.template get<k>() && j_ge_0.template get<k>()) {
             col[k] = a_load[j].template get<k>();
           }
 
           // Load a_i for reuse across j iterations
-          if (j_eq_i[fanout_bank_idx]) {
+          if (j_eq_i.template get<k>()) {
             a_i[k] = col[k];
           }
         });
 
         fpga_tools::UnrolledLoop<rows>([&](auto k) {
-          // find which fanout bank this unrolled iteration is going to use
-          constexpr auto fanout_bank_idx = k / kFanoutReduction;
-
           // Depending on the iteration this code will compute either:
           // -> If i=j, a column of Q: Q_i = a_i*ir
           //    In that case, no term is added to the mult_add construct
@@ -330,9 +334,9 @@ struct StreamingQRD {
           //    but the i iteration is still required to fill ir and s
           //    for subsequent iterations
           auto prod_lhs = a_i[k];
-          auto prod_rhs =
-              i_lt_0[fanout_bank_idx] ? TT{0.0} : s_or_ir_j[fanout_bank_idx];
-          auto add = j_eq_i[fanout_bank_idx] ? TT{0.0} : col[k];
+          auto prod_rhs = i_lt_0.template get<k>() ?
+                                          TT{0.0} : s_or_ir_j.template get<k>();
+          auto add = j_eq_i.template get<k>() ? TT{0.0} : col[k];
           if constexpr (is_complex) {
             col1[k] = prod_lhs * prod_rhs.conj() + add;
           } else {
@@ -350,13 +354,13 @@ struct StreamingQRD {
           // are either going to be:
           // -> overwritten for the matrix Q (q_result)
           // -> unused for the a_compute
-          if (i_ge_0_j_ge_i[fanout_bank_idx] && j_ge_0[fanout_bank_idx]) {
+          if (i_ge_0_j_ge_i.template get<k>() && j_ge_0.template get<k>()) {
             q_result[j].template get<k>() = col1[k];
             a_compute[j].template get<k>() = col1[k];
           }
 
           // Store a_{i+1} for subsequent iterations of j
-          if (j_eq_i_plus_1[fanout_bank_idx]) {
+          if (j_eq_i_plus_1.template get<k>()) {
             a_ip1[k] = col1[k];
           }
         });
