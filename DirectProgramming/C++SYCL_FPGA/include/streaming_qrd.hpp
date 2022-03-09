@@ -19,10 +19,18 @@ fpga_tools::NTuple<T, output_size> fanout_tree(T value){
 
   if constexpr (output_size > max_fanout){
     constexpr int kNextLevelSize = ceil_div<output_size, max_fanout>();
-    auto next_level = sycl::ext::intel::fpga_reg(fanout_tree<T, max_fanout, kNextLevelSize>(value));
-    
+    auto next_level = fanout_tree<T, max_fanout, kNextLevelSize>(value);
+
+    fpga_tools::NTuple<T, kNextLevelSize> lower_level_outputs;
+
+    fpga_tools::UnrolledLoop<kNextLevelSize>([&](auto k) {
+      lower_level_outputs.template get<k>() =
+                      sycl::ext::intel::fpga_reg(next_level.template get<k>());
+    });
+
     fpga_tools::UnrolledLoop<output_size>([&](auto k) {
-      output.template get<k>() = next_level.template get<k/max_fanout>();
+      output.template get<k>() =
+                              lower_level_outputs.template get<k/max_fanout>();
     });
 
   }
@@ -31,7 +39,7 @@ fpga_tools::NTuple<T, output_size> fanout_tree(T value){
       output.template get<k>() = value;
     });
   }
-  
+
   return output;
 }
 
@@ -237,7 +245,7 @@ struct StreamingQRD {
         });
       }
 
-      // Compute the QR Decomposition
+      // // Compute the QR Decomposition
 
       // r_result write index
       int r_element_index = 0;
@@ -251,9 +259,12 @@ struct StreamingQRD {
       // Depending on the context, will contain:
       // -> -s[j]: for all the iterations to compute a_j
       // -> ir: for one iteration per j iterations to compute Q_i
-      [[intel::fpga_memory]]        // NO-FORMAT: Attribute
-      [[intel::private_copies(2)]]  // NO-FORMAT: Attribute
+      [[intel::private_copies(2)]] // NO-FORMAT: Attribute
+      [[intel::singlepump]]        // NO-FORMAT: Attribute
       TT s_or_ir[columns];
+
+      fpga_tools::NTuple<TT, raw_latency> s_or_ir_fifo;
+
 
       T pip1, ir;
 
@@ -286,11 +297,30 @@ struct StreamingQRD {
           next_i = i;
         }
 
-        // Two matrix columns for partial results.
-        TT col[rows];
+        // A matrix columns for partial results.
         TT col1[rows];
 
-        auto s_or_ir_j = fanout_tree<TT, kFanoutReduction, rows>(s_or_ir[j]);
+        // if(i >= 0){
+        //   if (i == j){
+        //     PRINTF("reading ir %f\n", ir);
+        //   }
+        //   else{
+        //     PRINTF("reading s_or_ir_j %f %d\n", s_or_ir[j], int(j));
+        //   }
+        // }
+        // else{
+        //   PRINTF("waiting\n");
+        // }
+        // float ir_l;
+        // if (j == i){
+        //   ir_l = ir;
+        // }
+        // else{
+        //   ir_l = s_or_ir[j];
+        // }
+        // auto s_or_ir_j = fanout_tree<TT, kFanoutReduction, rows>(ir_l);
+
+        auto s_or_ir_j = fanout_tree<TT, kFanoutReduction, rows>(s_or_ir_fifo.template get<0>());
         auto j_eq_i = fanout_tree<bool, kFanoutReduction, rows>(j == i);
 	auto j_ge_0 = fanout_tree<bool, kFanoutReduction, rows>(j >= 0);
         auto i_gt_0 = fanout_tree<bool, kFanoutReduction, rows>(i > 0);
@@ -302,30 +332,29 @@ struct StreamingQRD {
         // These are going to be use to compute the dot product of two
         // different columns of the input matrix.
         fpga_tools::UnrolledLoop<rows>([&](auto k) {
+          TT col;
 
           // Load col with the current column of matrix A.
           // At least one iteration of the outer loop i is required
           // for the "working copy" a_compute to contain data.
           // If no i iteration elapsed, we must read the column of
           // matrix A directly from the a_load; col then contains a_j
-          if (i_gt_0.template get<k>() && j_ge_0.template get<k>()) {
-            col[k] = a_compute[j].template get<k>();
+          if (i_gt_0.template get<k>() && j_ge_0.template get<k>() {
+            col = sycl::ext::intel::fpga_reg(a_compute[j].template get<k>());
           }
           // Using an else statement makes the compiler throw an
           // inexplicable warning when using non complex types:
           // "Compiler Warning: Memory instruction with unresolved
           // pointer may lead to bad QoR."
           if (!i_gt_0.template get<k>() && j_ge_0.template get<k>()) {
-            col[k] = a_load[j].template get<k>();
+            col = sycl::ext::intel::fpga_reg(a_load[j].template get<k>());
           }
 
           // Load a_i for reuse across j iterations
           if (j_eq_i.template get<k>()) {
-            a_i[k] = col[k];
+            a_i[k] = col;
           }
-        });
 
-        fpga_tools::UnrolledLoop<rows>([&](auto k) {
           // Depending on the iteration this code will compute either:
           // -> If i=j, a column of Q: Q_i = a_i*ir
           //    In that case, no term is added to the mult_add construct
@@ -336,7 +365,14 @@ struct StreamingQRD {
           auto prod_lhs = a_i[k];
           auto prod_rhs = i_lt_0.template get<k>() ?
                                           TT{0.0} : s_or_ir_j.template get<k>();
-          auto add = j_eq_i.template get<k>() ? TT{0.0} : col[k];
+          auto add = j_eq_i.template get<k>() ? TT{0.0} : col;
+
+          // Adding pipeline stage before the multadd to help routing larger
+          // designs
+          prod_lhs = sycl::ext::intel::fpga_reg(prod_lhs);
+          prod_rhs = sycl::ext::intel::fpga_reg(prod_rhs);
+          add = sycl::ext::intel::fpga_reg(add);
+
           if constexpr (is_complex) {
             col1[k] = prod_lhs * prod_rhs.conj() + add;
           } else {
@@ -355,23 +391,25 @@ struct StreamingQRD {
           // -> overwritten for the matrix Q (q_result)
           // -> unused for the a_compute
           if (i_ge_0_j_ge_i.template get<k>() && j_ge_0.template get<k>()) {
-            q_result[j].template get<k>() = col1[k];
-            a_compute[j].template get<k>() = col1[k];
+            q_result[j].template get<k>() = sycl::ext::intel::fpga_reg(col1[k]);
+            a_compute[j].template get<k>() = sycl::ext::intel::fpga_reg(col1[k]);
           }
 
           // Store a_{i+1} for subsequent iterations of j
           if (j_eq_i_plus_1.template get<k>()) {
-            a_ip1[k] = col1[k];
+            a_ip1[k] = sycl::ext::intel::fpga_reg(col1[k]);
           }
         });
 
         // Perform the dot product <a_{i+1},a_{i+1}> or <a_{i+1}, a_j>
         TT p_ij{0.0};
         fpga_tools::UnrolledLoop<rows>([&](auto k) {
+          auto prod_lhs = sycl::ext::intel::fpga_reg(col1[k]);
+          auto prod_rhs = sycl::ext::intel::fpga_reg(a_ip1[k]);
           if constexpr (is_complex) {
-            p_ij = p_ij + col1[k] * a_ip1[k].conj();
+            p_ij += prod_lhs * prod_rhs.conj();
           } else {
-            p_ij = p_ij + col1[k] * a_ip1[k];
+            p_ij += prod_lhs * prod_rhs;
           }
         });
 
@@ -414,26 +452,45 @@ struct StreamingQRD {
 
         // j may be negative if the number of "dummy" iterations is
         // larger than the matrix size
+        TT val;
         if (j >= 0) {
-          if constexpr (is_complex) {
-            s_or_ir[j] =
-                TT{j == i + 1 ? ir : s_j.r(), j == i + 1 ? 0.0f : s_j.i()};
-          } else {
-            s_or_ir[j] = j == i + 1 ? ir : s_j;
+          if(j == i+1){
+            // PRINTF("writing ir at %d\n", int(j));
+            // s_or_ir[j] = ir;
+            val = ir;
+          }
+          else{
+            // PRINTF("writing %d\n", int(j));
+            // s_or_ir[j] = s_j;
+            val = s_j;
           }
         }
+        else{
+          val = 0;
+        }
+
+        // shift s_or_ir FIFO
+        fpga_tools::UnrolledLoop<raw_latency>([&](auto k) {
+          if constexpr (k == raw_latency-1){
+            s_or_ir_fifo.template get<k>() = val;
+          }
+          else{
+            s_or_ir_fifo.template get<k>() = s_or_ir_fifo.template get<k+1>();
+          }
+        });
 
         // Compute the R_{i+1,i+1} or R_{i+1,j}
         TT r_ip1j;
-        if constexpr (is_complex) {
-          r_ip1j = j == i + 1 ? TT{sycl::sqrt(pip1), 0.0}
-                              : TT{ir * p_ij.r(), ir * p_ij.i()};
-        } else {
-          r_ip1j = j == i + 1 ? sycl::sqrt(pip1) : ir * p_ij;
+        if(j == i+1){
+          r_ip1j = sycl::sqrt(pip1);
+        }
+        else{
+          r_ip1j = ir * p_ij;
         }
 
         // Write the computed R value when j is not a "dummy" iteration
-        if ((j >= i + 1) && (i + 1 < columns)) {
+        if (j >= i + 1 && (i + 1 < columns)) {
+          // r_result[r_element_index] = sycl::ext::intel::fpga_reg(ir);
           r_result[r_element_index] = r_ip1j;
           r_element_index++;
         }
@@ -458,7 +515,7 @@ struct StreamingQRD {
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        ROut::write(r_result[r_idx]);
+        ROut::write(sycl::ext::intel::fpga_reg(r_result[r_idx]));
       }
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
@@ -475,10 +532,9 @@ struct StreamingQRD {
           fpga_tools::UnrolledLoop<pipe_size>([&](auto k) {
             if constexpr (t * pipe_size + k < rows) {
               pipe_write.template get<k>() =
-                  get[t] ? q_result[li / kLoopIterPerColumn]
-                               .template get<t * pipe_size + k>()
-                         : sycl::ext::intel::fpga_reg(
-                               pipe_write.template get<k>());
+                  get[t] ? sycl::ext::intel::fpga_reg(q_result[li / kLoopIterPerColumn]
+                               .template get<t * pipe_size + k>())
+                    : sycl::ext::intel::fpga_reg(pipe_write.template get<k>());
             }
           });
         });
