@@ -263,9 +263,6 @@ struct StreamingQRD {
       [[intel::singlepump]]        // NO-FORMAT: Attribute
       TT s_or_ir[columns];
 
-      fpga_tools::NTuple<TT, raw_latency> s_or_ir_fifo;
-
-
       T pip1, ir;
 
       // Initialization of the i and j variables for the triangular loop
@@ -300,27 +297,7 @@ struct StreamingQRD {
         // A matrix columns for partial results.
         TT col1[rows];
 
-        // if(i >= 0){
-        //   if (i == j){
-        //     PRINTF("reading ir %f\n", ir);
-        //   }
-        //   else{
-        //     PRINTF("reading s_or_ir_j %f %d\n", s_or_ir[j], int(j));
-        //   }
-        // }
-        // else{
-        //   PRINTF("waiting\n");
-        // }
-        // float ir_l;
-        // if (j == i){
-        //   ir_l = ir;
-        // }
-        // else{
-        //   ir_l = s_or_ir[j];
-        // }
-        // auto s_or_ir_j = fanout_tree<TT, kFanoutReduction, rows>(ir_l);
-
-        auto s_or_ir_j = fanout_tree<TT, kFanoutReduction, rows>(s_or_ir_fifo.template get<0>());
+        auto s_or_ir_j = fanout_tree<TT, kFanoutReduction, rows>(s_or_ir[j]);
         auto j_eq_i = fanout_tree<bool, kFanoutReduction, rows>(j == i);
 	auto j_ge_0 = fanout_tree<bool, kFanoutReduction, rows>(j >= 0);
         auto i_gt_0 = fanout_tree<bool, kFanoutReduction, rows>(i > 0);
@@ -452,32 +429,16 @@ struct StreamingQRD {
 
         // j may be negative if the number of "dummy" iterations is
         // larger than the matrix size
-        TT val;
         if (j >= 0) {
           if(j == i+1){
             // PRINTF("writing ir at %d\n", int(j));
-            // s_or_ir[j] = ir;
-            val = ir;
+            s_or_ir[j] = ir;
           }
           else{
             // PRINTF("writing %d\n", int(j));
-            // s_or_ir[j] = s_j;
-            val = s_j;
+            s_or_ir[j] = s_j;
           }
         }
-        else{
-          val = 0;
-        }
-
-        // shift s_or_ir FIFO
-        fpga_tools::UnrolledLoop<raw_latency>([&](auto k) {
-          if constexpr (k == raw_latency-1){
-            s_or_ir_fifo.template get<k>() = val;
-          }
-          else{
-            s_or_ir_fifo.template get<k>() = s_or_ir_fifo.template get<k+1>();
-          }
-        });
 
         // Compute the R_{i+1,i+1} or R_{i+1,j}
         TT r_ip1j;
