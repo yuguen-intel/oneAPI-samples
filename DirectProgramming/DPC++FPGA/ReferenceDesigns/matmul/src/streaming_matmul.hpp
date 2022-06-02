@@ -113,7 +113,8 @@ struct StreamingMatmul {
           fpga_tools::UnrolledLoop<columns>([&](auto k) {
             // Assumes the B matrix was given transposed, otherwise it need to
             // be transposed.
-            dot_prod += a_load[row][k] * b_load[column][k];
+            dot_prod = sycl::ext::intel::fpga_reg(dot_prod) +
+                       a_load[row][k] * b_load[column][k];
           });
           mm_result[row][column] = dot_prod;
         }

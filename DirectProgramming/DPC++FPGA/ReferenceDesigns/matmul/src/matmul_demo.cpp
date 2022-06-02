@@ -9,7 +9,7 @@
 // e.g., $ONEAPI_ROOT/dev-utilities//include/dpc_common.hpp
 #include "dpc_common.hpp"
 #include "matmul.hpp"
-#define DEBUG 1
+
 /*
   COMPLEX, COLS_COMPONENT and ROWS_COMPONENT are defined by the build system.
   Depending on the value of COMPLEX, the real or complex MatrixMultiplication is
@@ -138,9 +138,9 @@ int main(int argc, char *argv[]) {
               random_real_a;
 #else
           float random_imag_a = rand() % (kRandomMax - kRandomMin) + kRandomMin;
-          ac_complex<float> random_complex{random_real_a, random_imag_a};
+          ac_complex<float> random_complex_a{random_real_a, random_imag_a};
           a_matrix[matrix_index * kMatrixSize + row * kColumns + col] =
-              random_complex;
+              random_complex_a;
 #endif
 
           float random_real_b = rand() % (kRandomMax - kRandomMin) + kRandomMin;
@@ -149,9 +149,9 @@ int main(int argc, char *argv[]) {
               random_real_b;
 #else
           float random_imag_b = rand() % (kRandomMax - kRandomMin) + kRandomMin;
-          ac_complex<float> random_complex{random_real_b, random_imag_b};
+          ac_complex<float> random_complex_b{random_real_b, random_imag_b};
           b_matrix[matrix_index * kMatrixSize + row * kColumns + col] =
-              random_complex;
+              random_complex_b;
 #endif
         }  // end of col
       }    // end of row
