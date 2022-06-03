@@ -1,4 +1,4 @@
-# Multiplication of matrices of Matrices
+# Multiplication of matrices
 This DPC++ reference design demonstrates high performance multiplication of complex/real matrices on FPGA.
 
 ***Documentation***:  The [DPC++ FPGA Code Samples Guide](https://software.intel.com/content/www/us/en/develop/articles/explore-dpcpp-through-intel-fpga-code-samples.html) helps you to navigate the samples and build your knowledge of DPC++ for FPGA. <br>
