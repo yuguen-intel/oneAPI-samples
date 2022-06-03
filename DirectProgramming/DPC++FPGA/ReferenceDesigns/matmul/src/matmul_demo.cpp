@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  constexpr size_t kMatricesToMultiply = 1;
+  constexpr size_t kMatricesToMultiply = 8;
 
   try {
     // SYCL boilerplate

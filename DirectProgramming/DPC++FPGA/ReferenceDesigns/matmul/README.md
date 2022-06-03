@@ -1,5 +1,5 @@
-# QR Decomposition of Matrices
-This DPC++ reference design demonstrates high performance QR decomposition of complex/real matrices on FPGA.
+# Multiplication of matrices of Matrices
+This DPC++ reference design demonstrates high performance multiplication of complex/real matrices on FPGA.
 
 ***Documentation***:  The [DPC++ FPGA Code Samples Guide](https://software.intel.com/content/www/us/en/develop/articles/explore-dpcpp-through-intel-fpga-code-samples.html) helps you to navigate the samples and build your knowledge of DPC++ for FPGA. <br>
 The [oneAPI DPC++ FPGA Optimization Guide](https://software.intel.com/content/www/us/en/develop/documentation/oneapi-fpga-optimization-guide) is the reference manual for targeting FPGAs through DPC++. <br>
@@ -10,7 +10,7 @@ The [oneAPI Programming Guide](https://software.intel.com/en-us/oneapi-programmi
 | OS                                | Linux* Ubuntu* 18.04/20.04, RHEL*/CentOS* 8, SUSE* 15; Windows* 10
 | Hardware                          | Intel® Programmable Acceleration Card (PAC) with Intel Arria® 10 GX FPGA <br> Intel® FPGA Programmable Acceleration Card (PAC) D5005 (with Intel Stratix® 10 SX) <br> Intel Xeon® CPU E5-1650 v2 @ 3.50GHz (host machine)
 | Software                          | Intel® oneAPI DPC++ Compiler <br> Intel® FPGA Add-On for oneAPI Base Toolkit
-| What you will learn               | Implementing a high performance FPGA version of the Gram-Schmidt QR decomposition algorithm.
+| What you will learn               | Implementing a high performance FPGA version of the matrix multiplication.
 | Time to complete                  | 1 hr (not including compile time)
 
 
@@ -21,47 +21,39 @@ Please refer to the performance disclaimer at the end of this README.
 
 | Device                                         | Throughput
 |:---                                            |:---
-| Intel® PAC with Intel Arria® 10 GX FPGA        | 24k matrices/s for complex matrices of size 128 * 128
-| Intel® FPGA PAC D5005 (with Intel Stratix® 10 SX)      | 7k matrices/s for complex matrices of size 256 * 256
+| Intel® PAC with Intel Arria® 10 GX FPGA        | 75k matrices/s for real matrices of size 64 * 64
+| Intel® FPGA PAC D5005 (with Intel Stratix® 10 SX)      | ???k matrices/s for real matrices of size 64 * 64
 
 
 ## Purpose
 
-This FPGA reference design demonstrates QR decomposition of matrices of complex/real numbers, a common operation employed in linear algebra. Matrix _A_ (input) is decomposed into a product of an orthogonal matrix _Q_ and an upper triangular matrix _R_.
-
-The algorithms employed by the reference design are the Gram-Schmidt QR decomposition algorithm and the thin QR factorization method. Background information on these algorithms can be found in Wikipedia's [QR decomposition](https://en.wikipedia.org/wiki/QR_decomposition) article. The original algorithm has been modified and optimized for performance on FPGAs in this implementation.
-
-QR decomposition is used extensively in signal processing applications such as beamforming, multiple-input multiple-output (MIMO) processing, and Space Time Adaptive Processing (STAP).
+This FPGA reference design demonstrates the multiplication of matrices of complex/real numbers, a common operation employed in linear algebra. 
 
 
 ### Matrix dimensions and FPGA resources
 
-The QR decomposition algorithm factors a complex _m_ × _n_ matrix, where _m_ ≥ _n_. The algorithm computes the vector dot product of two columns of the matrix. In our FPGA implementation, the dot product is computed in a loop over the column's _m_ elements. The loop is fully unrolled to maximize throughput. As a result, *m* complex multiplication operations are performed in parallel on the FPGA, followed by sequential additions to compute the dot product result.
+The matrix multiplicaiton algorithm mutliplies two _n_ × _n_ matrices. The algorithm computes the vector dot product of a row from one input matrix by a column of the other input matrix. In our FPGA implementation, the dot product is computed in a loop over the column/row's _n_ elements. The loop is fully unrolled to maximize throughput. As a result, *n* multiplication operations are performed in parallel on the FPGA, followed by sequential additions to compute the dot product result.
 
 We use the compiler flag `-fp-relaxed`, which permits the compiler to reorder floating point additions (i.e. to assume that floating point addition is commutative). The compiler uses this freedom to reorder the additions so that the dot product arithmetic can be optimally implemented using the FPGA's specialized floating point DSP (Digital Signal Processing) hardware.
 
-With this optimization, our FPGA implementation requires 4*_m_ DSPs to compute the complex floating point dot product or 2*m* DSPs for the real case. Thus, the matrix size is constrained by the total FPGA DSP resources available.
+With this optimization, our FPGA implementation requires _n_ DSPs to compute the real floating point dot product. Thus, the matrix size is constrained by the total FPGA DSP resources available.
 
-By default, the design is parameterized to process 128 × 128 matrices when compiled targeting Intel® PAC with Intel Arria® 10 GX FPGA. It is parameterized to process 256 × 256 matrices when compiled targeting Intel® FPGA PAC D5005 (with Intel Stratix® 10 SX), a larger device. However, the design can process matrices from 4 x 4 to 512 x 512.
+By default, the design is parameterized to process 64 × 64 matrices. However, the design can process matrices from any size.
 
 ## Key Implementation Details
 | Kernel            | Description
 ---                 |---
-| QRD               | Implements a modified Gram-Schmidt QR decomposition algorithm.
+| Matmul            | Implements the matrix multiplication.
 
 To optimize the performance-critical loop in its algorithm, the design leverages concepts discussed in the following FPGA tutorials:
-* **Triangular Loop Optimization** (triangular_loop)
 * **Explicit Pipelining with `fpga_reg`** (fpga_register)
-* **Loop `ivdep` Attribute** (loop_ivdep)
 * **Unrolling Loops** (loop_unroll)
 
  The key optimization techniques used are as follows:
-   1. Refactoring the original Gram-Schmidt algorithm to merge two dot products into one, reducing the total number of dot products needed to three from two. This helps us reduce the DSPs required for the implementation.
-   2. Converting the nested loop into a single merged loop and applying Triangular Loop optimizations. This allows us to generate a design that is very well pipelined.
-   3. Fully vectorizing the dot products using loop unrolling.
-   4. Using the compiler flag -Xsfp-relaxed to re-order floating point operations and allowing the inference of a specialised dot-product DSP. This further reduces the number of DSP blocks needed by the implementation, the overall latency, and pipeline depth.
-   5. Using an efficient memory banking scheme to generate high performance hardware.
-   6. Using the `fpga_reg` attribute to insert more pipeline stages where needed to improve the frequency achieved by the design.
+   1. Fully vectorizing the dot products using loop unrolling.
+   2. Using the compiler flag -Xsfp-relaxed to re-order floating point operations and allowing the inference of a specialised dot-product DSP. This further reduces the number of DSP blocks needed by the implementation, the overall latency, and pipeline depth.
+   3. Using an efficient memory banking scheme to generate high performance hardware.
+   4. Using the `fpga_reg` attribute to insert more pipeline stages where needed to improve the frequency achieved by the design.
 
 ## License
 Code samples are licensed under the MIT license. See
@@ -137,7 +129,7 @@ After learning how to use the extensions for Intel oneAPI Toolkits, return to th
        make fpga_emu
        ```
 
-    * Generate HTML performance report. Find the report in `qrd_report.prj/reports/report.html`directory.
+    * Generate HTML performance report. Find the report in `matmul_report.prj/reports/report.html`directory.
 
        ```
        make report
@@ -149,7 +141,7 @@ After learning how to use the extensions for Intel oneAPI Toolkits, return to th
        make fpga
        ```
 
-3. (Optional) As the above hardware compile may take several hours to complete, FPGA precompiled binaries (compatible with Linux* Ubuntu* 18.04) can be downloaded <a href="https://iotdk.intel.com/fpga-precompiled-binaries/latest/qrd.fpga.tar.gz" download>here</a>.
+3. (Optional) As the above hardware compile may take several hours to complete, FPGA precompiled binaries (compatible with Linux* Ubuntu* 18.04) can be downloaded <a href="https://iotdk.intel.com/fpga-precompiled-binaries/latest/matmul.fpga.tar.gz" download>here</a>.
 
 ### On a Windows* System
 1. Generate the `Makefile` by running `cmake`.
@@ -196,9 +188,9 @@ dependencies and permissions errors.
 You can compile and run this Reference Design in the Eclipse* IDE (in Linux*) and the Visual Studio* IDE (in Windows*). For instructions, refer to the following link: [Intel® oneAPI DPC++ FPGA Workflows on Third-Party IDEs](https://software.intel.com/en-us/articles/intel-oneapi-dpcpp-fpga-workflow-on-ide)
 
 ## Running the Reference Design
-You can perform the QR decomposition of 8 matrices repeatedly, as shown below. This step performs the following:
-* Generates 8 random matrices.
-* Computes the QR decomposition of the 8 matrices.
+You can perform 8 multiplication of matrices repeatedly, as shown below. This step performs the following:
+* Generates 16 random matrices.
+* Computes the multiplication of the 16 matrices.
 * Repeats the decomposition multiple times (specified as a command line argument) to evaluate performance.
 
 
@@ -206,15 +198,15 @@ You can perform the QR decomposition of 8 matrices repeatedly, as shown below. T
  Increase the amount of memory that the emulator runtime is permitted to allocate by setting the CL_CONFIG_CPU_FORCE_PRIVATE_MEM_SIZE environment variable before running the executable.
      ```
      export CL_CONFIG_CPU_FORCE_PRIVATE_MEM_SIZE=32MB
-     ./qrd.fpga_emu           (Linux)
+     ./matmul.fpga_emu           (Linux)
 
      set CL_CONFIG_CPU_FORCE_PRIVATE_MEM_SIZE=32MB
-     qrd.fpga_emu.exe         (Windows)
+     matmul.fpga_emu.exe         (Windows)
      ```
 
 2. Run the sample on the FPGA device.
      ```
-     ./qrd.fpga         (Linux)
+     ./matmul.fpga         (Linux)
      ```
 ### Application Parameters
 
@@ -228,10 +220,10 @@ Example output when running on Intel® PAC with Intel Arria® 10 GX FPGA for 8 m
 
 ```
 Device name: pac_a10 : Intel PAC Platform (pac_f000000)
-Generating 8 random complex matrices of size 128x128 
-Running QR decomposition of 8 matrices 819200 times
- Total duration:   268.733 s
-Throughput: 24.387k matrices/s
+Generating 8 random real matrices of size 64x64 
+Running the matrix multiplication of 8 matrices 16 times
+   Total duration:   0.224515 s
+Throughput: 75.5074k matrices/s
 Verifying results on matrix 0
 1
 2
@@ -244,25 +236,6 @@ Verifying results on matrix 0
 PASSED
 ```
 
-Example output when running on Intel® FPGA PAC D5005 (with Intel Stratix® 10 SX) for the decomposition of 8 matrices 819200 times (each matrix consisting of 256*256 complex numbers):
-
-```
-Device name: pac_s10 : Intel PAC Platform (pac_f100000)
-Generating 8 random complex matrices of size 256x256 
-Running QR decomposition of 8 matrices 819200 times
- Total duration:   888.077 s
-Throughput: 7.37954k matrices/s
-Verifying results on matrix 0
-1
-2
-3
-4
-5
-6
-7
-
-PASSED
-```
 
 ## Additional Design Information
 
@@ -277,10 +250,9 @@ PASSED
 `-Xsseed` | Specifies the Quartus compile seed, to yield slightly higher fmax
 `-DROWS_COMPONENT` | Specifies the number of rows of the matrix
 `-DCOLS_COMPONENT` | Specifies the number of columns of the matrix
-`-DFIXED_ITERATIONS` | Used to set the ivdep safelen attribute for the performance critical triangular loop
-`-DCOMPLEX` | Used to select between the complex and real QR decomposition (complex is the default)
+`-DCOMPLEX` | Used to select between the complex and real matrix product (real is the default)
 
-NOTE: The values for `seed`, `FIXED_ITERATIONS`, `ROWS_COMPONENT`, `COLS_COMPONENT` are set according to the board being targeted.
+NOTE: The values for `seed`, `ROWS_COMPONENT`, `COLS_COMPONENT` are set according to the board being targeted.
 
 ### Performance disclaimers
 
