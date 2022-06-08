@@ -50,7 +50,7 @@ void QRDecompositionImpl(
   constexpr int kAMatrixSize = columns * rows;
   constexpr int kQMatrixSize = columns * rows;
   constexpr int kRMatrixSize = columns * (columns + 1) / 2;
-  constexpr int kNumElementsPerDDRBurst = is_complex ? 4 : 8;
+  constexpr int kNumElementsPerDDRBurst = is_complex ? 8 : 16;
 
   using PipeType = fpga_tools::NTuple<TT, kNumElementsPerDDRBurst>;
 
@@ -127,6 +127,7 @@ void QRDecompositionImpl(
 
         // Copy the R matrix result to DDR
         for (int li = 0; li < kLoopIter; li++) {
+        if(repetition_index == repetitions-1){
           if constexpr (kIncompleteBurst){
             // Write a burst of kNumElementsPerDDRBurst elements to DDR
             #pragma unroll
@@ -145,6 +146,7 @@ void QRDecompositionImpl(
                           + li * kNumElementsPerDDRBurst + k] = r_result[li][k];
             }
           }
+        }
         } // end of matrix_index
       }  // end of repetition_index
     }  // end of li

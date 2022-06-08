@@ -7,15 +7,19 @@
 
 #include <list>
 
+// #define DEBUG
+
+/*
 #include <sycl/ext/intel/ac_types/ap_float_math.hpp>
+#undef C_TYPE_MAP_FLOAT
 #define C_TYPE_MAP_FLOAT(C_TYPE, FP, WFP, IFP, EFP)                            \
   template <> struct ac_private::map<C_TYPE> { typedef c_type<C_TYPE> t; };    \
   template <> struct ac_private::c_type_params<C_TYPE> {                       \
     enum { W = WFP, I = IFP, E = EFP, S = true, floating_point = FP };         \
   };
-using ap_t = ihc::ap_float<5, 10>;
 #define DT ihc::ap_float<5, 10>
-C_TYPE_MAP_FLOAT(ap_t, 1, 10, 1, 5)
+C_TYPE_MAP_FLOAT(DT, 1, 10, 1, 5)
+#undef C_TYPE_MAP_FLOAT
 
 namespace sycl{
 DT sqrt(DT in){
@@ -26,6 +30,11 @@ DT rsqrt(DT in){
   return ihc::ihc_rsqrt(in);
 }
 }
+
+*/
+#define DT double
+
+
 
 
 // dpc_common.hpp can be found in the dev-utilities include folder.
@@ -91,10 +100,19 @@ bool IsFinite(ac_complex<DT> val) {
 */
 bool IsFinite(DT val) { return std::isfinite(static_cast<double>(val)); }
 
+/*
+  Returns a random floating-point value between min and max
+*/
+float RandomValueInInterval(float min, float max) {
+  return min + static_cast<float>(rand()) /
+                   (static_cast<float>(RAND_MAX) / (max - min));
+}
+
+
 int main(int argc, char *argv[]) {
-  constexpr size_t kRandomSeed = 1138;
-  constexpr size_t kRandomMin = 1;
-  constexpr size_t kRandomMax = 10;
+  constexpr size_t kRandomSeed = 1137;
+  constexpr size_t kRandomMin = 0;
+  constexpr size_t kRandomMax = 1;
   constexpr size_t kRows = ROWS_COMPONENT;
   constexpr size_t kColumns = COLS_COMPONENT;
   constexpr size_t kAMatrixSize = kRows * kColumns;
@@ -161,12 +179,12 @@ int main(int argc, char *argv[]) {
                                                                 matrix_index++){
       for (size_t row = 0; row < kRows; row++) {
         for (size_t col = 0; col < kColumns; col++) {
-          DT random_real = rand() % (kRandomMax - kRandomMin) + kRandomMin;
+          DT random_real = RandomValueInInterval(kRandomMin, kRandomMax);
   #if COMPLEX == 0
           a_matrix[matrix_index * kAMatrixSize
                  + col * kRows + row] = random_real;
   #else
-          DT random_imag = rand() % (kRandomMax - kRandomMin) + kRandomMin;
+          DT random_imag = RandomValueInInterval(kRandomMin, kRandomMax);
           ac_complex<DT> random_complex{random_real, random_imag};
           a_matrix[matrix_index * kAMatrixSize
                  + col * kRows + row] = random_complex;
@@ -204,10 +222,12 @@ int main(int argc, char *argv[]) {
 
     // Floating-point error threshold value at which we decide that the design
     // computed an incorrect value
-    constexpr float kErrorThreshold{1e-4};
+    constexpr float kErrorThreshold{1e-2};
+    // constexpr float kErrorThreshold{1e-4};
     // The orthogonality check is more sensible to numerical error, the
     // threshold is then set a bit higher
-    DT q_ortho_error_threshold = pow(2.0, -9);
+    DT q_ortho_error_threshold = pow(2.0, -3);
+    // DT q_ortho_error_threshold = pow(2.0, -9);
 
     // Check Q and R matrices
     std::cout << "Verifying results on matrix ";
@@ -310,21 +330,21 @@ int main(int argc, char *argv[]) {
           bool r_is_finite;
 
   #if COMPLEX == 0
-          q_r_eq_a = abs(a_matrix[matrix_index * kAMatrixSize
-                                + j * kRows + i]
-                       - q_r_ij) < kErrorThreshold;
+          q_r_eq_a = abs(static_cast<double>(a_matrix[matrix_index * kAMatrixSize
+                                + j * kRows + i])
+                       - static_cast<double>(q_r_ij)) < kErrorThreshold;
 
           qt_q_eq_id =
-                  ((i == j) && (abs(qt_q_ij - 1) < q_ortho_error_threshold)) ||
-                  ((i != j) && (abs(qt_q_ij) < q_ortho_error_threshold));
+                  ((i == j) && (abs(static_cast<double>(qt_q_ij) - 1) < q_ortho_error_threshold)) ||
+                  ((i != j) && (abs(static_cast<double>(qt_q_ij)) < q_ortho_error_threshold));
 
           q_qt_eq_id = !square_matrices ||
-                  (((i == j) && (abs(q_qt_ij - 1) < q_ortho_error_threshold)) ||
-                  ((i != j) && (abs(q_qt_ij) < q_ortho_error_threshold)));
+                  (((i == j) && (abs(static_cast<double>(q_qt_ij) - 1) < q_ortho_error_threshold)) ||
+                  ((i != j) && (abs(static_cast<double>(q_qt_ij)) < q_ortho_error_threshold)));
 
           r_is_upper_triang =
               (i >= kColumns) ||
-              ((i > j) && ((abs(r_matrix_op[i][j]) < kErrorThreshold))) ||
+              ((i > j) && ((abs(static_cast<double>(r_matrix_op[i][j])) < kErrorThreshold))) ||
               ((i <= j));
 
   #else

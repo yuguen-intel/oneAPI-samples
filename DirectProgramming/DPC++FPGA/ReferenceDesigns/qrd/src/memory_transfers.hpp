@@ -151,6 +151,7 @@ void MatrixReadPipeToDDR(
                             (li % kLoopIterPerColumn) == kLoopIterPerColumn - 1;
         }
 
+        if(repetition == repetitions-1){
         fpga_tools::UnrolledLoop<num_elem_per_bank>([&](auto k) {
           if constexpr (kIncompleteBurst){
             // Check if the current write index is beyond the end of the current
@@ -172,6 +173,8 @@ void MatrixReadPipeToDDR(
 
         });
 
+        }
+        
         if constexpr (kIncompleteBurst){
           // Update the current element index in the write buffer according
           // to the write size of the current iteration

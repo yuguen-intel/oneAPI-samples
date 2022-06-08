@@ -220,8 +220,8 @@ struct StreamingQRD {
       ac_int<kIBitSize, true> i = -1;
       ac_int<kJBitSize, true> j = 0;
 
-      // [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      // [[intel::ivdep(raw_latency)]]       // NO-FORMAT: Attribute
+      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
+      [[intel::ivdep(raw_latency)]]       // NO-FORMAT: Attribute
       for (int s = 0; s < kIterations; s++) {
         // Pre-compute the next values of i and j
         ac_int<kIBitSize, true> next_i;
@@ -290,6 +290,7 @@ struct StreamingQRD {
           if (j_eq_i[fanout_bank_idx]) {
             a_i[k] = col[k];
           }
+
         });
 
         fpga_tools::UnrolledLoop<rows>([&](auto k) {
