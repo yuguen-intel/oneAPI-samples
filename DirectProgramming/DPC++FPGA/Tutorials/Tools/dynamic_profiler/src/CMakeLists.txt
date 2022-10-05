@@ -20,20 +20,20 @@ endif()
 # 1. The "compile" stage compiles the device code to an intermediate representation (SPIR-V).
 # 2. The "link" stage invokes the compiler's FPGA backend before linking.
 #    For this reason, FPGA backend flags must be passed as link flags in CMake.
-set(EMULATOR_COMPILE_FLAGS "-Wall -fintelfpga -DFPGA_EMULATOR")
-set(EMULATOR_LINK_FLAGS "-fintelfpga")
-set(HARDWARE_COMPILE_FLAGS "-Wall -fintelfpga")
-set(HARDWARE_LINK_FLAGS "-fintelfpga -Xshardware -Xsboard=${FPGA_BOARD} -Xsprofile ${USER_HARDWARE_FLAGS}")
+set(EMULATOR_COMPILE_FLAGS "-Wall -fsycl -fintelfpga -DFPGA_EMULATOR")
+set(EMULATOR_LINK_FLAGS "-fsycl -fintelfpga")
+set(HARDWARE_COMPILE_FLAGS "-Wall -fsycl -fintelfpga")
+set(HARDWARE_LINK_FLAGS "-fsycl -fintelfpga -Xshardware -Xsboard=${FPGA_BOARD} -Xsprofile ${USER_HARDWARE_FLAGS}")
 # use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA backend compilation
 
 ###############################################################################
 ### FPGA Emulator
 ###############################################################################
 # To compile in a single command:
-#    dpcpp -fintelfpga -DFPGA_EMULATOR dynamic_profiler.cpp -o dynamic_profiler.fpga_emu
+#    icpx -fsycl -fintelfpga -DFPGA_EMULATOR dynamic_profiler.cpp -o dynamic_profiler.fpga_emu
 # CMake executes:
-#    [compile] dpcpp -fintelfpga -DFPGA_EMULATOR -o dynamic_profiler.cpp.o -c dynamic_profiler.cpp
-#    [link]    dpcpp -fintelfpga dynamic_profiler.cpp.o -o dynamic_profiler.fpga_emu
+#    [compile] icpx -fsycl -fintelfpga -DFPGA_EMULATOR -o dynamic_profiler.cpp.o -c dynamic_profiler.cpp
+#    [link]    icpx -fsycl -fintelfpga dynamic_profiler.cpp.o -o dynamic_profiler.fpga_emu
 add_executable(${EMULATOR_TARGET} ${SOURCE_FILE})
 add_custom_target(fpga_emu DEPENDS ${EMULATOR_TARGET})
 set_target_properties(${EMULATOR_TARGET} PROPERTIES COMPILE_FLAGS "${EMULATOR_COMPILE_FLAGS}")
@@ -43,10 +43,10 @@ set_target_properties(${EMULATOR_TARGET} PROPERTIES LINK_FLAGS "${EMULATOR_LINK_
 ### FPGA Hardware
 ###############################################################################
 # To compile in a single command:
-#   dpcpp -fintelfpga -Xshardware -Xsboard=<FPGA_BOARD> dynamic_profiler.cpp -o dynamic_profiler.fpga
+#   icpx -fsycl -fintelfpga -Xshardware -Xsboard=<FPGA_BOARD> dynamic_profiler.cpp -o dynamic_profiler.fpga
 # CMake executes:
-#   [compile] dpcpp -fintelfpga -o dynamic_profiler.cpp.o -c dynamic_profiler.cpp
-#   [link]    dpcpp -fintelfpga -Xshardware -Xsboard=<FPGA_BOARD> dynamic_profiler.cpp.o -o dynamic_profiler.fpga
+#   [compile] icpx -fsycl -fintelfpga -o dynamic_profiler.cpp.o -c dynamic_profiler.cpp
+#   [link]    icpx -fsycl -fintelfpga -Xshardware -Xsboard=<FPGA_BOARD> dynamic_profiler.cpp.o -o dynamic_profiler.fpga
 add_executable(${FPGA_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILE})
 add_custom_target(fpga DEPENDS ${FPGA_TARGET})
 set_target_properties(${FPGA_TARGET} PROPERTIES COMPILE_FLAGS "${HARDWARE_COMPILE_FLAGS}")

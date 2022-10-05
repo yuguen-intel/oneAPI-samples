@@ -84,23 +84,23 @@ This section includes a helpful list of commands and options to compile this des
 
 **FPGA emulator**
 
-`dpcpp -fintelfpga -DFPGA_EMULATOR fpga_compile.cpp -o fpga_compile.fpga_emu`
+`icpx -fintelfpga -DFPGA_EMULATOR fpga_compile.cpp -o fpga_compile.fpga_emu`
 
 **Optimization report (default board)**
 
-`dpcpp -fintelfpga -Xshardware -fsycl-link=early fpga_compile.cpp -o fpga_compile_report.a`
+`icpx -fintelfpga -Xshardware -fsycl-link=early fpga_compile.cpp -o fpga_compile_report.a`
 
 **Optimization report (explicit board)**
 
-`dpcpp -fintelfpga -Xshardware -fsycl-link=early -Xsboard=intel_s10sx_pac:pac_s10 fpga_compile.cpp -o fpga_compile_report.a`
+`icpx -fintelfpga -Xshardware -fsycl-link=early -Xsboard=intel_s10sx_pac:pac_s10 fpga_compile.cpp -o fpga_compile_report.a`
 
 **FPGA hardware (default board)**
 
-`dpcpp -fintelfpga -Xshardware fpga_compile.cpp -o fpga_compile.fpga`
+`icpx -fintelfpga -Xshardware fpga_compile.cpp -o fpga_compile.fpga`
 
 **FPGA hardware (explicit board)**
 
-`dpcpp -fintelfpga -Xshardware -Xsboard=intel_s10sx_pac:pac_s10 fpga_compile.cpp -o fpga_compile.fpga`
+`icpx -fintelfpga -Xshardware -Xsboard=intel_s10sx_pac:pac_s10 fpga_compile.cpp -o fpga_compile.fpga`
 
 
 The compiler options used are explained in the table.

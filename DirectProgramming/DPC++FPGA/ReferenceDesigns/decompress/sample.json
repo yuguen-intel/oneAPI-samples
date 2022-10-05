@@ -3,7 +3,7 @@
   "name": "Decompression",
   "categories": ["Toolkit/oneAPI Direct Programming/DPC++ FPGA/Reference Designs"],
   "description": "Optimized implementations of GZIP and SNAPPY decompression on an FPGA",
-  "toolchain": ["dpcpp"],
+  "toolchain": ["icpx -fsycl"],
   "os": ["linux", "windows"],
   "builder": ["ide", "cmake"],
   "targetDevice": ["FPGA"],
@@ -18,7 +18,7 @@
       {
         "id": "fpga_emu_gzip",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "mkdir build",
           "cd build",
           "cmake .. -DGZIP=1",
@@ -29,7 +29,7 @@
       {
         "id": "fpga_emu_snappy",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "mkdir build",
           "cd build",
           "cmake .. -DSNAPPY=1",
@@ -40,7 +40,7 @@
       {
         "id": "report_gzip",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "mkdir build",
           "cd build",
           "cmake .. -DGZIP=1",
@@ -50,7 +50,7 @@
       {
         "id": "report_snappy",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "mkdir build",
           "cd build",
           "cmake .. -DSNAPPY=1",
@@ -62,7 +62,7 @@
       {
         "id": "fpga_emu_gzip",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "cd ../..",
           "mkdir build",
           "cd build",
@@ -75,7 +75,7 @@
       {
         "id": "fpga_emu_snappy",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "cd ../..",
           "mkdir build",
           "cd build",
@@ -88,7 +88,7 @@
       {
         "id": "report_gzip",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "cd ../..",
           "mkdir build",
           "cd build",
@@ -100,7 +100,7 @@
       {
         "id": "report_snappy",
         "steps": [
-          "dpcpp --version",
+          "icpx --version",
           "cd ../..",
           "mkdir build",
           "cd build",
