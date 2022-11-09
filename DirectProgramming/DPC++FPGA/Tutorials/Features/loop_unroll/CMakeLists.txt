@@ -1,15 +1,12 @@
+# Direct CMake to use icpx rather than the default C++ compiler/linker on Linux
+# and icx-cl on Windows
 if(UNIX)
-    # Direct CMake to use icpx rather than the default C++ compiler/linker
     set(CMAKE_CXX_COMPILER icpx)
 else() # Windows
-    # Force CMake to use icx-cl rather than the default C++ compiler/linker 
-    # (needed on Windows only)
-    include (CMakeForceCompiler)
-    CMAKE_FORCE_CXX_COMPILER (icx-cl IntelDPCPP)
-    include (Platform/Windows-Clang)
+    set(CMAKE_CXX_COMPILER icx-cl)
 endif()
 
-cmake_minimum_required (VERSION 3.4)
+cmake_minimum_required (VERSION 3.7.2)
 
 project(LoopUnroll CXX)
 
@@ -19,9 +16,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 set(SOURCE_FILE src/loop_unroll.cpp)
 set(TARGET_NAME loop_unroll)
-set(EMULATOR_TARGET ${TARGET_NAME}.fpga_emu)
-set(SIMULATOR_TARGET ${TARGET_NAME}.fpga_sim)
-set(FPGA_TARGET ${TARGET_NAME}.fpga)
+
+set(EMULATOR_TARGET fpga_emu)
+set(SIMULATOR_TARGET fpga_sim)
+set(REPORT_TARGET report)
+set(FPGA_TARGET fpga)
+
+set(EMULATOR_OUTPUT_NAME ${TARGET_NAME}.${EMULATOR_TARGET})
+set(SIMULATOR_OUTPUT_NAME ${TARGET_NAME}.${SIMULATOR_TARGET})
+set(REPORT_OUTPUT_NAME ${TARGET_NAME}.${REPORT_TARGET})
+set(FPGA_OUTPUT_NAME ${TARGET_NAME}.${FPGA_TARGET})
 
 # FPGA board selection
 if(NOT DEFINED FPGA_DEVICE)
@@ -49,9 +53,13 @@ set(EMULATOR_COMPILE_FLAGS -DFPGA_EMULATOR)
 set(EMULATOR_LINK_FLAGS )
 set(SIMULATOR_COMPILE_FLAGS -Xssimulation -DFPGA_SIMULATOR)
 set(SIMULATOR_LINK_FLAGS -Xssimulation -Xsghdl -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS})
+set(REPORT_COMPILE_FLAGS )
+set(REPORT_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -fsycl-link=early)
 set(HARDWARE_COMPILE_FLAGS )
-set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS})
+set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -reuse-exe=${CMAKE_BINARY_DIR}/${FPGA_OUTPUT_NAME})
 # use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA simulator compilation and backend compilation
+
+add_subdirectory(../../../include ${CMAKE_CURRENT_BINARY_DIR}/includes) 
 
 ###############################################################################
 ### FPGA Emulator
@@ -62,12 +70,12 @@ set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLA
 #    [compile] icpx -fsycl -fintelfpga -DFPGA_EMULATOR -o loop_unroll.cpp.o -c loop_unroll.cpp
 #    [link]    icpx -fsycl -fintelfpga loop_unroll.cpp.o -o loop_unroll.fpga_emu
 add_executable(${EMULATOR_TARGET} ${SOURCE_FILE})
-target_include_directories(${EMULATOR_TARGET} PRIVATE ../../../include)
 target_compile_options(${EMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${EMULATOR_TARGET} PRIVATE ${EMULATOR_COMPILE_FLAGS})
 target_link_libraries(${EMULATOR_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${EMULATOR_TARGET} ${EMULATOR_LINK_FLAGS})
-add_custom_target(fpga_emu DEPENDS ${EMULATOR_TARGET})
+target_link_libraries(${EMULATOR_TARGET} fpga_samples_shared_hdr)
+set_target_properties(${EMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${EMULATOR_OUTPUT_NAME})
 
 ###############################################################################
 ### FPGA Simulator
@@ -78,27 +86,24 @@ add_custom_target(fpga_emu DEPENDS ${EMULATOR_TARGET})
 #    [compile] icpx -fintelfpga -Xssimulation -DFPGA_SIMULATOR -o loop_unroll.cpp.o -c loop_unroll.cpp
 #    [link]    icpx -fintelfpga -Xssimulation -Xsghdl -Xstarget=<FPGA_DEVICE> loop_unroll.cpp.o -o loop_unroll.fpga_sim
 add_executable(${SIMULATOR_TARGET} ${SOURCE_FILE})
-target_include_directories(${SIMULATOR_TARGET} PRIVATE ../../../include)
 target_compile_options(${SIMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${SIMULATOR_TARGET} PRIVATE ${SIMULATOR_COMPILE_FLAGS})
 target_link_libraries(${SIMULATOR_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${SIMULATOR_TARGET} ${SIMULATOR_LINK_FLAGS})
-add_custom_target(fpga_sim DEPENDS ${SIMULATOR_TARGET})
+set_target_properties(${SIMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${SIMULATOR_OUTPUT_NAME})
 
 ###############################################################################
 ### Generate Report
 ###############################################################################
 # To compile manually:
-#   icpx -fsycl -fintelfpga -Xshardware -Xstarget=<FPGA_DEVICE> -fsycl-link=early loop_unroll.cpp -o loop_unroll_report.a
-set(FPGA_EARLY_IMAGE ${TARGET_NAME}_report.a)
+#   icpx -fsycl -fintelfpga -Xshardware -Xstarget=<FPGA_DEVICE> -fsycl-link=early loop_unroll.cpp -o loop_unroll.report
 # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
-add_executable(${FPGA_EARLY_IMAGE} ${SOURCE_FILE})
-target_include_directories(${FPGA_EARLY_IMAGE} PRIVATE ../../../include)
-target_compile_options(${FPGA_EARLY_IMAGE} PRIVATE ${COMMON_COMPILE_FLAGS})
-target_compile_options(${FPGA_EARLY_IMAGE} PRIVATE ${HARDWARE_COMPILE_FLAGS})
-target_link_libraries(${FPGA_EARLY_IMAGE} ${COMMON_LINK_FLAGS})
-target_link_libraries(${FPGA_EARLY_IMAGE} ${HARDWARE_LINK_FLAGS} -fsycl-link=early)
-add_custom_target(report DEPENDS ${FPGA_EARLY_IMAGE})
+add_executable(${REPORT_TARGET} ${SOURCE_FILE})
+target_compile_options(${REPORT_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
+target_compile_options(${REPORT_TARGET} PRIVATE ${HARDWARE_COMPILE_FLAGS})
+target_link_libraries(${REPORT_TARGET} ${COMMON_LINK_FLAGS})
+target_link_libraries(${REPORT_TARGET} ${HARDWARE_LINK_FLAGS})
+set_target_properties(${REPORT_TARGET} PROPERTIES OUTPUT_NAME ${REPORT_OUTPUT_NAME})
 # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
 
 ###############################################################################
@@ -110,11 +115,10 @@ add_custom_target(report DEPENDS ${FPGA_EARLY_IMAGE})
 #   [compile] icpx -fsycl -fintelfpga -o loop_unroll.cpp.o -c loop_unroll.cpp
 #   [link]    icpx -fsycl -fintelfpga -Xshardware -Xstarget=<FPGA_DEVICE> loop_unroll.cpp.o -o loop_unroll.fpga
 add_executable(${FPGA_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILE})
-target_include_directories(${FPGA_TARGET} PRIVATE ../../../include)
 target_compile_options(${FPGA_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${FPGA_TARGET} PRIVATE ${HARDWARE_COMPILE_FLAGS})
 target_link_libraries(${FPGA_TARGET} ${COMMON_LINK_FLAGS})
-target_link_libraries(${FPGA_TARGET} ${HARDWARE_LINK_FLAGS} -reuse-exe=${CMAKE_BINARY_DIR}/${FPGA_TARGET})
-add_custom_target(fpga DEPENDS ${FPGA_TARGET})
+target_link_libraries(${FPGA_TARGET} ${HARDWARE_LINK_FLAGS})
+set_target_properties(${FPGA_TARGET} PROPERTIES OUTPUT_NAME ${FPGA_OUTPUT_NAME})
 # The -reuse-exe flag enables rapid recompilation of host-only code changes.
 # See DPC++FPGA/GettingStarted/fast_recompile for details.

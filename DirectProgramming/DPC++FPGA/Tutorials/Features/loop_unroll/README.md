@@ -125,95 +125,75 @@ The basic steps to build and run a sample using VS Code include:
 To learn more about the extensions and how to configure the oneAPI environment, see the 
 [Using Visual Studio Code with Intel&reg; oneAPI Toolkits User Guide](https://software.intel.com/content/www/us/en/develop/documentation/using-vs-code-with-intel-oneapi/top.html).
 
-### On a Linux* System
+### Configure the build system
 
-1. Generate the `Makefile` by running `cmake`.
-     ```
-   mkdir build
-   cd build
-   ```
-   To compile for the Intel&reg; PAC with Intel Arria&reg; 10 GX FPGA, run `cmake` using the command:
-    ```
-    cmake ..
-   ```
-   Alternatively, to compile for the Intel&reg; FPGA PAC D5005 (with Intel Stratix&reg; 10 SX), run `cmake` using the command:
+Create and go to a build directory
+```
+mkdir build
+cd build
+```
 
-   ```
-   cmake .. -DFPGA_DEVICE=intel_s10sx_pac:pac_s10
-   ```
-   You can also compile for a custom FPGA platform. Ensure that the board support package is installed on your system. Then run `cmake` using the command:
-   ```
-   cmake .. -DFPGA_DEVICE=<board-support-package>:<board-variant>
-   ```
+#### On a Linux* System
 
-2. Compile the design through the generated `Makefile`. The following build targets are provided, matching the recommended development flow:
+To configure the build system for the Intel&reg; PAC with Intel Arria&reg; 10 GX FPGA, run `cmake` using the command:
+```
+cmake ..
+```
+Alternatively, to configure the build system for the Intel&reg; FPGA PAC D5005 (with Intel Stratix&reg; 10 SX), run `cmake` using the command:
 
-   * Compile for emulation (fast compile time, targets emulated FPGA device):
-     ```
-     make fpga_emu
-     ```
-   * Compile for simulation (fast compile time, targets simulator FPGA device):
-     ```
-     make fpga_sim
-     ```
-   * Generate the optimization report:
-     ```
-     make report
-     ```
-   * Compile for FPGA hardware (longer compile time, targets FPGA device):
-     ```
-     make fpga
-     ```
+```
+cmake .. -DFPGA_DEVICE=intel_s10sx_pac:pac_s10
+```
+You can also configure the build system for a custom FPGA platform. Ensure that the board support package is installed on your system. Then run `cmake` using the command:
+```
+cmake .. -DFPGA_DEVICE=<board-support-package>:<board-variant>
+```
+
+#### On a Windows* System
+To configure the build system for the Intel&reg; PAC with Intel Arria&reg; 10 GX FPGA, run `cmake` using the command:
+```
+cmake -G "NMake Makefiles" ..
+```
+Alternatively, to configure the build system for the Intel&reg; FPGA PAC D5005 (with Intel Stratix&reg; 10 SX), run `cmake` using the command:
+
+```
+cmake -G "NMake Makefiles" .. -DFPGA_DEVICE=intel_s10sx_pac:pac_s10
+```
+You can also configure the build system for a custom FPGA platform. Ensure that the board support package is installed on your system. Then run `cmake` using the command:
+```
+cmake -G "NMake Makefiles" .. -DFPGA_DEVICE=<board-support-package>:<board-variant>
+```
+
+### Compile the design
+
+
+* Compile for emulation (fast compile time, targets emulated FPGA device):
+  ```
+  cmake --build . --target fpga_emu
+  ```
+* Compile for simulation (fast compile time, targets simulator FPGA device):
+  ```
+  cmake --build . --target fpga_sim
+  ```
+* Generate the optimization report:
+  ```
+  cmake --build . --target report
+  ```
+* Compile for FPGA hardware (longer compile time, targets FPGA device):
+  ```
+  cmake --build . --target fpga
+  ```
+
 3. (Optional) As the above hardware compile may take several hours to complete, FPGA precompiled binaries (compatible with Linux* Ubuntu* 18.04) can be downloaded <a href="https://iotdk.intel.com/fpga-precompiled-binaries/latest/loop_unroll.fpga.tar.gz" download>here</a>.
-
-### On a Windows* System
-
-1. Generate the `Makefile` by running `cmake`.
-     ```
-   mkdir build
-   cd build
-   ```
-   To compile for the Intel&reg; PAC with Intel Arria&reg; 10 GX FPGA, run `cmake` using the command:
-    ```
-    cmake -G "NMake Makefiles" ..
-   ```
-   Alternatively, to compile for the Intel&reg; FPGA PAC D5005 (with Intel Stratix&reg; 10 SX), run `cmake` using the command:
-
-   ```
-   cmake -G "NMake Makefiles" .. -DFPGA_DEVICE=intel_s10sx_pac:pac_s10
-   ```
-   You can also compile for a custom FPGA platform. Ensure that the board support package is installed on your system. Then run `cmake` using the command:
-   ```
-   cmake -G "NMake Makefiles" .. -DFPGA_DEVICE=<board-support-package>:<board-variant>
-   ```
-
-2. Compile the design through the generated `Makefile`. The following build targets are provided, matching the recommended development flow:
-
-   * Compile for emulation (fast compile time, targets emulated FPGA device):
-     ```
-     nmake fpga_emu
-     ```
-   * Compile for simulation (fast compile time, targets simulator FPGA device):
-     ```
-     nmake fpga_sim
-     ```
-   * Generate the optimization report:
-     ```
-     nmake report
-     ```
-   * Compile for FPGA hardware (longer compile time, targets FPGA device):
-     ```
-     nmake fpga
-     ```
 
 > **Note**: The Intel&reg; PAC with Intel Arria&reg; 10 GX FPGA and Intel&reg; FPGA PAC D5005 (with Intel Stratix&reg; 10 SX) do not support Windows*. Compiling to FPGA hardware on Windows* requires a third-party or custom Board Support Package (BSP) with Windows* support.
 
 > **Note**: If you encounter any issues with long paths when compiling under Windows*, you may have to create your ‘build’ directory in a shorter path, for example c:\samples\build.  You can then run cmake from that directory, and provide cmake with the full path to your sample directory.
 
 ### Troubleshooting
-If an error occurs, you can get more details by running `make` with
-the `VERBOSE=1` argument:
-``make VERBOSE=1``
+If an error occurs, you can get more details by running `cmake` with
+the `-- VERBOSE=1` argument:
+e.g. ``cmake --build . --target fpga_emu -- VERBOSE=1``
 For more comprehensive troubleshooting, use the Diagnostics Utility for
 Intel&reg; oneAPI Toolkits, which provides system checks to find missing
 dependencies and permissions errors.
@@ -233,20 +213,20 @@ You can also check the achieved system f<sub>MAX</sub> to verify the earlier cal
 ## Running the Sample
 
 1. Run the sample on the FPGA emulator (the kernel executes on the CPU):
-     ```
-     ./loop_unroll.fpga_emu     (Linux)
-     loop_unroll.fpga_emu.exe   (Windows)
-     ```
+  ```
+  ./loop_unroll.fpga_emu     (Linux)
+  loop_unroll.fpga_emu.exe   (Windows)
+  ```
 2. Run the sample on the FPGA simulator device:
-     ```
-     ./loop_unroll.fpga_sim     (Linux)
-     loop_unroll.fpga_sim.exe   (Windows)
-     ```
+  ```
+  ./loop_unroll.fpga_sim     (Linux)
+  loop_unroll.fpga_sim.exe   (Windows)
+  ```
 3. Run the sample on the FPGA device:
-     ```
-     ./loop_unroll.fpga         (Linux)
-     loop_unroll.fpga.exe       (Windows)
-     ```
+  ```
+  ./loop_unroll.fpga         (Linux)
+  loop_unroll.fpga.exe       (Windows)
+  ```
 
 ### Example of Output
 ```
