@@ -90,6 +90,7 @@ target_compile_options(${SIMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${SIMULATOR_TARGET} PRIVATE ${SIMULATOR_COMPILE_FLAGS})
 target_link_libraries(${SIMULATOR_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${SIMULATOR_TARGET} ${SIMULATOR_LINK_FLAGS})
+target_link_libraries(${SIMULATOR_TARGET} fpga_samples_shared_hdr)
 set_target_properties(${SIMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${SIMULATOR_OUTPUT_NAME})
 
 ###############################################################################
@@ -103,6 +104,7 @@ target_compile_options(${REPORT_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${REPORT_TARGET} PRIVATE ${HARDWARE_COMPILE_FLAGS})
 target_link_libraries(${REPORT_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${REPORT_TARGET} ${HARDWARE_LINK_FLAGS})
+target_link_libraries(${REPORT_TARGET} fpga_samples_shared_hdr)
 set_target_properties(${REPORT_TARGET} PROPERTIES OUTPUT_NAME ${REPORT_OUTPUT_NAME})
 # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
 
@@ -119,6 +121,7 @@ target_compile_options(${FPGA_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${FPGA_TARGET} PRIVATE ${HARDWARE_COMPILE_FLAGS})
 target_link_libraries(${FPGA_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${FPGA_TARGET} ${HARDWARE_LINK_FLAGS})
+target_link_libraries(${FPGA_TARGET} fpga_samples_shared_hdr)
 set_target_properties(${FPGA_TARGET} PROPERTIES OUTPUT_NAME ${FPGA_OUTPUT_NAME})
 # The -reuse-exe flag enables rapid recompilation of host-only code changes.
 # See DPC++FPGA/GettingStarted/fast_recompile for details.
