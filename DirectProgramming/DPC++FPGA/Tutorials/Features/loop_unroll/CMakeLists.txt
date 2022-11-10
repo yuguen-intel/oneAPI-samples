@@ -3,7 +3,9 @@
 if(UNIX)
     set(CMAKE_CXX_COMPILER icpx)
 else() # Windows
-    set(CMAKE_CXX_COMPILER icx-cl)
+    include (CMakeForceCompiler)
+    CMAKE_FORCE_CXX_COMPILER (icx-cl IntelDPCPP)
+    # set(CMAKE_CXX_COMPILER icx-cl)
 endif()
 
 cmake_minimum_required (VERSION 3.7.2)
