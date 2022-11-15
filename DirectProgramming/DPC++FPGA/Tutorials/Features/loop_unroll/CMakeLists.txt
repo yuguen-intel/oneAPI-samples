@@ -5,7 +5,7 @@ if(UNIX)
 else() # Windows
     include (CMakeForceCompiler)
     CMAKE_FORCE_CXX_COMPILER (icx-cl IntelDPCPP)
-    # set(CMAKE_CXX_COMPILER icx-cl)
+    include (Platform/Windows-Clang)
 endif()
 
 cmake_minimum_required (VERSION 3.7.2)
