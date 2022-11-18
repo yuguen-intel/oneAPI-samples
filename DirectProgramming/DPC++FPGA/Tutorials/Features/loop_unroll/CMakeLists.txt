@@ -103,9 +103,9 @@ set_target_properties(${SIMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${SIMULATOR_OUT
 # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
 add_executable(${REPORT_TARGET} ${SOURCE_FILE})
 target_compile_options(${REPORT_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
-target_compile_options(${REPORT_TARGET} PRIVATE ${HARDWARE_COMPILE_FLAGS})
+target_compile_options(${REPORT_TARGET} PRIVATE ${REPORT_COMPILE_FLAGS})
 target_link_libraries(${REPORT_TARGET} ${COMMON_LINK_FLAGS})
-target_link_libraries(${REPORT_TARGET} ${HARDWARE_LINK_FLAGS})
+target_link_libraries(${REPORT_TARGET} ${REPORT_LINK_FLAGS})
 target_link_libraries(${REPORT_TARGET} fpga_samples_shared_hdr)
 set_target_properties(${REPORT_TARGET} PROPERTIES OUTPUT_NAME ${REPORT_OUTPUT_NAME})
 # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
