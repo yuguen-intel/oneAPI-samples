@@ -48,6 +48,10 @@ set(USER_FLAGS "${USER_FLAGS}")
 # Use cmake -DUSER_INCLUDE_PATHS=<paths> to set extra paths for general
 # compilation.
 set(USER_INCLUDE_PATHS "${USER_INCLUDE_PATHS}")
+
+# Specify the location of the FPGA include directory
+set(FPGA_INCLUDE_PATHS ../../../include)
+
 ###############################################################################
 ### no changes after here
 ###############################################################################
@@ -72,20 +76,26 @@ set(SIMULATOR_OUTPUT_NAME ${TARGET_NAME}.${SIMULATOR_TARGET})
 set(REPORT_OUTPUT_NAME ${TARGET_NAME}.${REPORT_TARGET})
 set(FPGA_OUTPUT_NAME ${TARGET_NAME}.${FPGA_TARGET})
 
-# Sanitize the user include path
+# Get the user include path
 set(INCLUDEPATHS_LIST ${USER_INCLUDE_PATHS})
-set(INCLUDEPATHS_LIST ../../../include)
+# Add the FPGA include directory location
+list(APPEND INCLUDEPATHS_LIST ${FPGA_INCLUDE_PATHS})
+# Sanitize the include path
 separate_arguments(INCLUDEPATHS_LIST)
 include_directories(${INCLUDEPATHS_LIST})
 
-
 # This is a Windows-specific flag that enables exception handling in host code
 if(WIN32)
+    # add qactypes to link command on Windows only
+    set(QACTYPES "/Qactypes")
     set(WIN_FLAG "/EHsc")
+else()
+    # add qactypes for Linux
+    set(QACTYPES "-qactypes")
 endif()
 
-set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Wall ${WIN_FLAG})
-set(COMMON_LINK_FLAGS -fsycl -fintelfpga)
+set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Wall ${WIN_FLAG} ${QACTYPES})
+set(COMMON_LINK_FLAGS -fsycl -fintelfpga ${QACTYPES})
 
 # A SYCL ahead-of-time (AoT) compile processes the device code in two stages.
 # 1. The "compile" stage compiles the device code to an intermediate representation (SPIR-V).
@@ -139,7 +149,12 @@ add_dependencies(${SIMULATOR_TARGET} displaySimulationCommands)
 add_executable(${REPORT_TARGET} ${SOURCE_FILE})
 target_compile_options(${REPORT_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${REPORT_TARGET} PRIVATE ${REPORT_COMPILE_FLAGS})
-target_link_libraries(${REPORT_TARGET} ${COMMON_LINK_FLAGS})
+
+# The report target does not need the QACTYPES flag at link stage
+set(MODIFIED_COMMON_LINK_FLAGS_REPORT ${COMMON_LINK_FLAGS})
+list(REMOVE_ITEM MODIFIED_COMMON_LINK_FLAGS_REPORT ${QACTYPES})
+
+target_link_libraries(${REPORT_TARGET} ${MODIFIED_COMMON_LINK_FLAGS_REPORT})
 target_link_libraries(${REPORT_TARGET} ${REPORT_LINK_FLAGS})
 set_target_properties(${REPORT_TARGET} PROPERTIES OUTPUT_NAME ${REPORT_OUTPUT_NAME})
 
