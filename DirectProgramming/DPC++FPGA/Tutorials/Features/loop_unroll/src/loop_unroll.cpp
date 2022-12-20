@@ -27,16 +27,16 @@ void VecAdd(const std::vector<float> &summands1,
             size_t array_size) {
 
 
-#if defined(FPGA_EMULATOR)
-  ext::intel::fpga_emulator_selector device_selector;
-#elif defined(FPGA_SIMULATOR)
-  ext::intel::fpga_simulator_selector device_selector;
-#else
-  ext::intel::fpga_selector device_selector;
+#if FPGA_SIMULATOR
+  auto selector = sycl::ext::intel::fpga_simulator_selector_v;
+#elif FPGA_HARDWARE
+  auto selector = sycl::ext::intel::fpga_selector_v;
+#else  // #if FPGA_EMULATOR
+  auto selector = sycl::ext::intel::fpga_emulator_selector_v;
 #endif
 
   try {
-    queue q(device_selector, fpga_tools::exception_handler,
+    queue q(selector, fpga_tools::exception_handler,
             property::queue::enable_profiling{});
 
     buffer buffer_summands1(summands1);
