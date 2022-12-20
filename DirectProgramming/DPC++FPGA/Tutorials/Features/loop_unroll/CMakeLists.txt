@@ -19,7 +19,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 ###############################################################################
 ### Customize these build variables
 ###############################################################################
-set(SOURCE_FILE src/loop_unroll.cpp)
+set(SOURCE_FILE_NAME "src/loop_unroll.cpp")
 set(TARGET_NAME loop_unroll)
 
 # Use cmake -DFPGA_DEVICE=<board-support-package>:<board-variant> to choose a
@@ -77,7 +77,7 @@ include_directories(${INCLUDEPATHS_LIST})
 # This is a Windows-specific flag that enables exception handling in host code
 if(WIN32)
     # add qactypes to link command on Windows only
-    set(QACTYPES "/Qactypes")
+    set(QACTYPES "-Qactypes")
     set(WIN_FLAG "/EHsc")
 else()
     # add qactypes for Linux
@@ -100,6 +100,9 @@ set(SIMULATOR_LINK_FLAGS -Xssimulation -Xsghdl -Xstarget=${FPGA_DEVICE} ${USER_H
 set(HARDWARE_COMPILE_FLAGS -DFPGA_HARDWARE)
 set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -reuse-exe=${CMAKE_BINARY_DIR}/${FPGA_OUTPUT_NAME})
 # use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA simulator compilation and backend compilation
+
+# Set the source file as a path rather than a string
+set(SOURCE_FILE ${SOURCE_FILE_NAME})
 
 ###############################################################################
 ### FPGA Emulator
@@ -150,11 +153,18 @@ set_target_properties(${FPGA_TARGET} PROPERTIES OUTPUT_NAME ${FPGA_OUTPUT_NAME})
 ### This part only manipulates cmake variables to print the commands to the user
 ###############################################################################
 
-file(TO_NATIVE_PATH "/" SEPARATOR)
-file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}${SEPARATOR}CMakeFiles/${EMULATOR_TARGET}.dir${SEPARATOR}${SOURCE_FILE}.o)
-file(RELATIVE_PATH SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}${SEPARATOR}${SOURCE_FILE})
+# set the correct object file extension depending on the target platform
+if(WIN32)
+    set(OBJ_EXTENSION "obj")
+else()
+    set(OBJ_EXTENSION "o")
+endif()
 
-function(getCompileCommands includes common_compile_flags special_compile_flags common_link_flags special_link_flags output_name)
+# Get the relative path to the source and object files
+file(RELATIVE_PATH SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${SOURCE_FILE})
+file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${EMULATOR_TARGET}.dir/${SOURCE_FILE_NAME}.${OBJ_EXTENSION})
+
+function(getCompileCommands includes common_compile_flags special_compile_flags common_link_flags special_link_flags target output_name)
 
     # Creating a string that contains the compile command
     # Start by the compiler invocation
@@ -162,7 +172,7 @@ function(getCompileCommands includes common_compile_flags special_compile_flags 
 
     # Add all the potential includes
     foreach(INCLUDE ${includes})
-        file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}${SEPARATOR}${INCLUDE})
+        file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
         set(output "${output} -I${INCLUDE}")
     endforeach()
 
@@ -175,6 +185,9 @@ function(getCompileCommands includes common_compile_flags special_compile_flags 
     foreach(FLAG ${special_compile_flags})
         set(output "${output} ${FLAG}")
     endforeach()
+
+    # Get the location of the object file
+    file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir/${SOURCE_FILE_NAME}.${OBJ_EXTENSION})
 
     # Add the source file and the output file
     set(COMPILE_COMMAND "${output} -c ${SOURCE_FILE} -o ${OBJ_FILE}" PARENT_SCOPE)
@@ -198,8 +211,13 @@ function(getCompileCommands includes common_compile_flags special_compile_flags 
 
 endfunction()
 
+# Windows executable is going to have the .exe extension
+if(WIN32)
+    set(EXECUTABLE_EXTENSION ".exe")
+endif()
+
 # Display the compile instructions in the emulation flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${EMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${EMULATOR_LINK_FLAGS}" "${EMULATOR_OUTPUT_NAME}")
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${EMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${EMULATOR_LINK_FLAGS}" "${EMULATOR_TARGET}" "${EMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 
 add_custom_target(  displayEmulationCompileCommands ALL
@@ -208,7 +226,7 @@ add_custom_target(  displayEmulationCompileCommands ALL
 add_dependencies(${EMULATOR_TARGET} displayEmulationCompileCommands)
 
 # Display the compile instructions in the simulation flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${SIMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${SIMULATOR_LINK_FLAGS}" "${SIMULATOR_OUTPUT_NAME}")
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${SIMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${SIMULATOR_LINK_FLAGS}" "${SIMULATOR_TARGET}" "${SIMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 add_custom_target(  displaySimulationCompileCommands ALL
                     ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
@@ -216,7 +234,7 @@ add_custom_target(  displaySimulationCompileCommands ALL
 add_dependencies(${SIMULATOR_TARGET} displaySimulationCompileCommands)
 
 # Display the compile instructions in the report flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${REPORT_COMPILE_FLAGS}" "${MODIFIED_COMMON_LINK_FLAGS_REPORT}" "${REPORT_LINK_FLAGS}" "${REPORT_OUTPUT_NAME}")
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${REPORT_COMPILE_FLAGS}" "${MODIFIED_COMMON_LINK_FLAGS_REPORT}" "${REPORT_LINK_FLAGS}" "${REPORT_TARGET}" "${REPORT_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 add_custom_target(  displayReportCompileCommands ALL
                     ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
@@ -224,7 +242,7 @@ add_custom_target(  displayReportCompileCommands ALL
 add_dependencies(${REPORT_TARGET} displayReportCompileCommands)
 
 # Display the compile instructions in the fpga flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${FPGA_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${FPGA_LINK_FLAGS}" "${FPGA_OUTPUT_NAME}")
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${FPGA_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${FPGA_LINK_FLAGS}" "${FPGA_TARGET}" "${FPGA_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 add_custom_target(  displayFPGACompileCommands ALL
                     ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
