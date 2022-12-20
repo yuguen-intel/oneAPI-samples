@@ -142,7 +142,7 @@ set_target_properties(${REPORT_TARGET} PROPERTIES OUTPUT_NAME ${REPORT_OUTPUT_NA
 ###############################################################################
 ### FPGA Hardware
 ###############################################################################
-add_executable(${FPGA_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILE})
+add_executable(${FPGA_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILES})
 target_compile_options(${FPGA_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${FPGA_TARGET} PRIVATE ${HARDWARE_COMPILE_FLAGS})
 target_link_libraries(${FPGA_TARGET} ${COMMON_LINK_FLAGS})
