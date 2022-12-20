@@ -1,15 +1,14 @@
+# Direct CMake to use icpx rather than the default C++ compiler/linker on Linux
+# and icx-cl on Windows
 if(UNIX)
-    # Direct CMake to use icpx rather than the default C++ compiler/linker
     set(CMAKE_CXX_COMPILER icpx)
 else() # Windows
-    # Force CMake to use icx-cl rather than the default C++ compiler/linker
-    # (needed on Windows only)
     include (CMakeForceCompiler)
     CMAKE_FORCE_CXX_COMPILER (icx-cl IntelDPCPP)
     include (Platform/Windows-Clang)
 endif()
 
-cmake_minimum_required (VERSION 3.4)
+cmake_minimum_required (VERSION 3.7.2)
 
 project(GZip CXX)
 
@@ -17,4 +16,317 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
-add_subdirectory (src)
+###############################################################################
+### Customize these build variables
+###############################################################################
+if(LOW_LATENCY)
+    # Compile the low latency version of the design
+    message(STATUS "Compiling the Low Latency variant of the design")
+    set(SOURCE_FILE src/gzip_ll.cpp src/crc32.cpp src/WriteGzip.cpp src/CompareGzip.cpp src/gzipkernel_ll.cpp )
+else()
+    # Compile the high bandwidth version of the design
+    message(STATUS "Compiling the High Bandwidth variation of the design")
+    set(SOURCE_FILE src/gzip.cpp src/crc32.cpp src/WriteGzip.cpp src/CompareGzip.cpp src/gzipkernel.cpp)
+endif()
+
+set(TARGET_NAME gzip)
+
+# Use cmake -DFPGA_DEVICE=<board-support-package>:<board-variant> to choose a
+# different device. Here are a few device examples (this list is not
+# exhaustive):
+#   intel_s10sx_pac:pac_s10
+#   intel_s10sx_pac:pac_s10_usm
+#   intel_a10gx_pac:pac_a10
+# Note that depending on your installation, you may need to specify the full 
+# path to the board support package (BSP), this usually is in your install 
+# folder.
+#
+# You can also specify a device family (E.g. "Arria10" or "Stratix10") or a
+# specific part number (E.g. "10AS066N3F40E2SG") to generate a standalone IP.
+if(NOT DEFINED FPGA_DEVICE)
+    set(FPGA_DEVICE "intel_s10sx_pac:pac_s10_usm")
+endif()
+
+# Use cmake -DUSER_FPGA_FLAGS=<flags> to set extra flags for FPGA backend
+# compilation. 
+set(USER_FPGA_FLAGS "${USER_FPGA_FLAGS}")
+
+# Use cmake -DUSER_FLAGS=<flags> to set extra flags for general compilation.
+set(USER_FLAGS "${USER_FLAGS}")
+
+# Use cmake -DUSER_INCLUDE_PATHS=<paths> to set extra paths for general
+# compilation.
+set(USER_INCLUDE_PATHS "${USER_INCLUDE_PATHS} ../../include")
+
+###############################################################################
+### no changes after here
+###############################################################################
+
+# Print the device being used for the compiles
+message(STATUS "Configuring the design to run on FPGA board ${FPGA_DEVICE}")
+
+# Set design parameters according to the selected chip
+if(FPGA_DEVICE MATCHES ".*a10.*")
+    # A10 parameters
+    set(NUM_ENGINES 1)
+    if(DEFINED LOW_LATENCY)
+        set(SEED "-Xsseed=4")
+        set(NUM_REORDER "")
+    else()
+        set(SEED "-Xsseed=4")
+        set(NUM_REORDER "")
+    endif()
+elseif(FPGA_DEVICE MATCHES ".*s10.*")
+    # S10 parameters
+    set(NUM_ENGINES 2)
+    if(DEFINED LOW_LATENCY)
+        set(SEED "-Xsseed=16")
+        set(NUM_REORDER "")
+    else()
+        set(SEED "-Xsseed=4")
+        # For the High Bandwidth variant, specify 6 reordering units to improve global memory read bandwidth across 4 channels of DDR.
+        # For Low Latency variant this is not necessary since only one channel of global memory is used (host memory).
+        set(NUM_REORDER "-Xsnum-reorder=6")
+    endif()
+elseif(FPGA_DEVICE MATCHES ".*agilex.*")
+    # Agilex™
+    set(NUM_ENGINES 2)
+    if(DEFINED LOW_LATENCY)
+        set(SEED "-Xsseed=1")
+        set(NUM_REORDER "")
+    else()
+        set(SEED "-Xsseed=8")
+        # For the High Bandwidth variant, specify 6 reordering units to improve global memory read bandwidth across 4 channels of DDR.
+        # For Low Latency variant this is not necessary since only one channel of global memory is used (host memory).
+        set(NUM_REORDER "-Xsnum-reorder=6")
+    endif()
+else()
+    set(NUM_ENGINES 1)
+    set(SEED "-Xsseed=1")
+    set(NUM_REORDER "")
+endif()
+
+if(IGNORE_DEFAULT_SEED)
+    set(SEED "")
+endif()
+
+# Presence of USM host allocations (and whether to turn on enable the low-latency target) is detected automatically by
+# looking at the name of the BSP, or manually by the user when running CMake.
+# E.g., cmake .. -DUSER_ENABLE_USM=1
+if(FPGA_DEVICE MATCHES ".*usm.*" OR USER_ENABLE_USM)
+    set(USM_ENABLED 1)
+elseif(LOW_LATENCY)
+    # Low latency design requires USM, so error out
+    message(FATAL_ERROR "Error: The Low Latency variant of the design requires USM host allocations")
+endif()
+
+
+# Set the names of the makefile targets to be generated by cmake
+set(EMULATOR_TARGET fpga_emu)
+set(SIMULATOR_TARGET fpga_sim)
+set(REPORT_TARGET report)
+set(FPGA_TARGET fpga)
+set(IP_EXPORT_TARGET fpga_ip_export)
+
+# Set the names of the generated files per makefile target
+set(EMULATOR_OUTPUT_NAME ${TARGET_NAME}.${EMULATOR_TARGET})
+set(SIMULATOR_OUTPUT_NAME ${TARGET_NAME}.${SIMULATOR_TARGET})
+set(REPORT_OUTPUT_NAME ${TARGET_NAME}.${REPORT_TARGET})
+set(FPGA_OUTPUT_NAME ${TARGET_NAME}.${FPGA_TARGET})
+
+# Sanitize the include path
+set(INCLUDEPATHS_LIST ${USER_INCLUDE_PATHS})
+separate_arguments(INCLUDEPATHS_LIST)
+include_directories(${INCLUDEPATHS_LIST})
+
+# This is a Windows-specific flag that enables exception handling in host code
+if(WIN32)
+    # add qactypes to link command on Windows only
+    set(QACTYPES "-Qactypes")
+    set(WIN_FLAG "/EHsc")
+else()
+    # add qactypes for Linux
+    set(QACTYPES "-qactypes")
+endif()
+
+set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Wall ${WIN_FLAG} ${QACTYPES} ${USER_FLAGS})
+set(COMMON_LINK_FLAGS -fsycl -fintelfpga ${QACTYPES} ${USER_FLAGS})
+
+# A SYCL ahead-of-time (AoT) compile processes the device code in two stages.
+# 1. The "compile" stage compiles the device code to an intermediate representation (SPIR-V).
+# 2. The "link" stage invokes the compiler's FPGA backend before linking.
+#    For this reason, FPGA backend flags must be passed as link flags in CMake.
+set(EMULATOR_COMPILE_FLAGS -DNUM_ENGINES=${NUM_ENGINES} -DFPGA_EMULATOR)
+set(EMULATOR_LINK_FLAGS -DNUM_ENGINES=${NUM_ENGINES})
+set(REPORT_COMPILE_FLAGS -DNUM_ENGINES=${NUM_ENGINES} -DFPGA_HARDWARE)
+set(REPORT_LINK_FLAGS ${NUM_REORDER} -Xsopt-arg=\"-nocaching\" -DNUM_ENGINES=${NUM_ENGINES} -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -fsycl-link=early)
+set(SIMULATOR_COMPILE_FLAGS -DNUM_ENGINES=${NUM_ENGINES} -Xssimulation -DFPGA_SIMULATOR)
+set(SIMULATOR_LINK_FLAGS -DNUM_ENGINES=${NUM_ENGINES} -Xssimulation -Xsghdl -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS})
+set(HARDWARE_COMPILE_FLAGS -DNUM_ENGINES=${NUM_ENGINES} -DFPGA_HARDWARE)
+set(HARDWARE_LINK_FLAGS ${NUM_REORDER} -Xsparallel=2 ${SEED} -Xsopt-arg=\"-nocaching\" -DNUM_ENGINES=${NUM_ENGINES} -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -reuse-exe=${CMAKE_BINARY_DIR}/${FPGA_OUTPUT_NAME})
+# use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA simulator compilation and backend compilation
+
+# Set the source file names in a string
+set(SOURCE_FILE_NAME "${SOURCE_FILE}")
+
+###############################################################################
+### FPGA Emulator
+###############################################################################
+add_executable(${EMULATOR_TARGET} ${SOURCE_FILE})
+target_compile_options(${EMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
+target_compile_options(${EMULATOR_TARGET} PRIVATE ${EMULATOR_COMPILE_FLAGS})
+target_link_libraries(${EMULATOR_TARGET} ${COMMON_LINK_FLAGS})
+target_link_libraries(${EMULATOR_TARGET} ${EMULATOR_LINK_FLAGS})
+set_target_properties(${EMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${EMULATOR_OUTPUT_NAME})
+
+###############################################################################
+### FPGA Simulator
+###############################################################################
+add_executable(${SIMULATOR_TARGET} ${SOURCE_FILE})
+target_compile_options(${SIMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
+target_compile_options(${SIMULATOR_TARGET} PRIVATE ${SIMULATOR_COMPILE_FLAGS})
+target_link_libraries(${SIMULATOR_TARGET} ${COMMON_LINK_FLAGS})
+target_link_libraries(${SIMULATOR_TARGET} ${SIMULATOR_LINK_FLAGS})
+set_target_properties(${SIMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${SIMULATOR_OUTPUT_NAME})
+
+###############################################################################
+### Generate Report
+###############################################################################
+add_executable(${REPORT_TARGET} ${SOURCE_FILE})
+target_compile_options(${REPORT_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
+target_compile_options(${REPORT_TARGET} PRIVATE ${REPORT_COMPILE_FLAGS})
+
+# The report target does not need the QACTYPES flag at link stage
+set(MODIFIED_COMMON_LINK_FLAGS_REPORT ${COMMON_LINK_FLAGS})
+list(REMOVE_ITEM MODIFIED_COMMON_LINK_FLAGS_REPORT ${QACTYPES})
+
+target_link_libraries(${REPORT_TARGET} ${MODIFIED_COMMON_LINK_FLAGS_REPORT})
+target_link_libraries(${REPORT_TARGET} ${REPORT_LINK_FLAGS})
+set_target_properties(${REPORT_TARGET} PROPERTIES OUTPUT_NAME ${REPORT_OUTPUT_NAME})
+
+###############################################################################
+### FPGA Hardware
+###############################################################################
+add_executable(${FPGA_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILE})
+target_compile_options(${FPGA_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
+target_compile_options(${FPGA_TARGET} PRIVATE ${HARDWARE_COMPILE_FLAGS})
+target_link_libraries(${FPGA_TARGET} ${COMMON_LINK_FLAGS})
+target_link_libraries(${FPGA_TARGET} ${HARDWARE_LINK_FLAGS})
+set_target_properties(${FPGA_TARGET} PROPERTIES OUTPUT_NAME ${FPGA_OUTPUT_NAME})
+
+###############################################################################
+### This part only manipulates cmake variables to print the commands to the user
+###############################################################################
+
+# set the correct object file extension depending on the target platform
+if(WIN32)
+    set(OBJ_EXTENSION "obj")
+else()
+    set(OBJ_EXTENSION "o")
+endif()
+
+
+function(getCompileCommands includes common_compile_flags special_compile_flags common_link_flags special_link_flags target output_name)
+
+    set(file_names ${SOURCE_FILE_NAME})
+    foreach(source ${file_names})
+        # Get the relative path to the source and object files
+        file(RELATIVE_PATH CURRENT_SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${source})
+        file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${EMULATOR_TARGET}.dir/${source}.${OBJ_EXTENSION})
+        
+        # Creating a string that contains the compile command
+        # Start by the compiler invocation
+        set(COMPILE_COMMAND "${COMPILE_COMMAND}${CMAKE_CXX_COMPILER}")
+
+        # Add all the potential includes
+        foreach(INCLUDE ${includes})
+            file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
+            set(COMPILE_COMMAND "${COMPILE_COMMAND} -I${INCLUDE}")
+        endforeach()
+
+        # Add all the common compile flags
+        foreach(FLAG ${common_compile_flags})
+            set(COMPILE_COMMAND "${COMPILE_COMMAND} ${FLAG}")
+        endforeach()
+
+        # Add all the specific compile flags
+        foreach(FLAG ${special_compile_flags})
+            set(COMPILE_COMMAND "${COMPILE_COMMAND} ${FLAG}")
+        endforeach()
+
+        # Get the location of the object file
+        file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir/${source}.${OBJ_EXTENSION})
+
+        # Add the source file and the output file
+        set(COMPILE_COMMAND "${COMPILE_COMMAND} -c ${CURRENT_SOURCE_FILE} -o ${OBJ_FILE}\n")
+    endforeach()
+
+    set(COMPILE_COMMAND "${COMPILE_COMMAND}" PARENT_SCOPE)
+
+    # Creating a string that contains the link command
+    # Start by the compiler invocation
+    set(LINK_COMMAND "${LINK_COMMAND}${CMAKE_CXX_COMPILER}")
+
+    # Add all the common link flags
+    foreach(FLAG ${common_link_flags})
+        set(LINK_COMMAND "${LINK_COMMAND} ${FLAG}")
+    endforeach()
+
+    # Add all the specific link flags
+    foreach(FLAG ${special_link_flags})
+        set(LINK_COMMAND "${LINK_COMMAND} ${FLAG}")
+    endforeach()    
+
+    # Add the output file
+    set(LINK_COMMAND "${LINK_COMMAND} -o ${output_name}")
+
+    foreach(source ${file_names})
+        # Get the relative path to the source and object files
+        file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${EMULATOR_TARGET}.dir/${source}.${OBJ_EXTENSION})
+
+        # Add the source file and the output file
+        set(LINK_COMMAND "${LINK_COMMAND} ${OBJ_FILE}")
+    endforeach()
+
+    set(LINK_COMMAND "${LINK_COMMAND}" PARENT_SCOPE)
+
+
+endfunction()
+
+# Windows executable is going to have the .exe extension
+if(WIN32)
+    set(EXECUTABLE_EXTENSION ".exe")
+endif()
+
+# Display the compile instructions in the emulation flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${EMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${EMULATOR_LINK_FLAGS}" "${EMULATOR_TARGET}" "${EMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+
+
+add_custom_target(  displayEmulationCompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${EMULATOR_TARGET} displayEmulationCompileCommands)
+
+# Display the compile instructions in the simulation flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${SIMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${SIMULATOR_LINK_FLAGS}" "${SIMULATOR_TARGET}" "${SIMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+
+add_custom_target(  displaySimulationCompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${SIMULATOR_TARGET} displaySimulationCompileCommands)
+
+# Display the compile instructions in the report flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${REPORT_COMPILE_FLAGS}" "${MODIFIED_COMMON_LINK_FLAGS_REPORT}" "${REPORT_LINK_FLAGS}" "${REPORT_TARGET}" "${REPORT_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+
+add_custom_target(  displayReportCompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${REPORT_TARGET} displayReportCompileCommands)
+
+# Display the compile instructions in the fpga flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${FPGA_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${FPGA_LINK_FLAGS}" "${FPGA_TARGET}" "${FPGA_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+
+add_custom_target(  displayFPGACompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${FPGA_TARGET} displayFPGACompileCommands)

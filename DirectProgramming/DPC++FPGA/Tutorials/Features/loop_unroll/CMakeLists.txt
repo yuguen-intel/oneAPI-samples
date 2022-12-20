@@ -19,7 +19,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 ###############################################################################
 ### Customize these build variables
 ###############################################################################
-set(SOURCE_FILE_NAME "src/loop_unroll.cpp")
+set(SOURCE_FILE src/loop_unroll.cpp)
 set(TARGET_NAME loop_unroll)
 
 # Use cmake -DFPGA_DEVICE=<board-support-package>:<board-variant> to choose a
@@ -101,8 +101,8 @@ set(HARDWARE_COMPILE_FLAGS -DFPGA_HARDWARE)
 set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -reuse-exe=${CMAKE_BINARY_DIR}/${FPGA_OUTPUT_NAME})
 # use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA simulator compilation and backend compilation
 
-# Set the source file as a path rather than a string
-set(SOURCE_FILE ${SOURCE_FILE_NAME})
+# Set the source file names in a string
+set(SOURCE_FILE_NAME "${SOURCE_FILE}")
 
 ###############################################################################
 ### FPGA Emulator
@@ -160,41 +160,47 @@ else()
     set(OBJ_EXTENSION "o")
 endif()
 
-# Get the relative path to the source and object files
-file(RELATIVE_PATH SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${SOURCE_FILE})
-file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${EMULATOR_TARGET}.dir/${SOURCE_FILE_NAME}.${OBJ_EXTENSION})
 
 function(getCompileCommands includes common_compile_flags special_compile_flags common_link_flags special_link_flags target output_name)
 
-    # Creating a string that contains the compile command
-    # Start by the compiler invocation
-    set(output "${CMAKE_CXX_COMPILER}")
+    set(file_names ${SOURCE_FILE_NAME})
+    foreach(source ${file_names})
+        # Get the relative path to the source and object files
+        file(RELATIVE_PATH CURRENT_SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${source})
+        file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${EMULATOR_TARGET}.dir/${source}.${OBJ_EXTENSION})
+        
+        # Creating a string that contains the compile command
+        # Start by the compiler invocation
+        set(COMPILE_COMMAND "${COMPILE_COMMAND}${CMAKE_CXX_COMPILER}")
 
-    # Add all the potential includes
-    foreach(INCLUDE ${includes})
-        file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
-        set(output "${output} -I${INCLUDE}")
+        # Add all the potential includes
+        foreach(INCLUDE ${includes})
+            file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
+            set(COMPILE_COMMAND "${COMPILE_COMMAND} -I${INCLUDE}")
+        endforeach()
+
+        # Add all the common compile flags
+        foreach(FLAG ${common_compile_flags})
+            set(COMPILE_COMMAND "${COMPILE_COMMAND} ${FLAG}")
+        endforeach()
+
+        # Add all the specific compile flags
+        foreach(FLAG ${special_compile_flags})
+            set(COMPILE_COMMAND "${COMPILE_COMMAND} ${FLAG}")
+        endforeach()
+
+        # Get the location of the object file
+        file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir/${source}.${OBJ_EXTENSION})
+
+        # Add the source file and the output file
+        set(COMPILE_COMMAND "${COMPILE_COMMAND} -c ${CURRENT_SOURCE_FILE} -o ${OBJ_FILE}\n")
     endforeach()
 
-    # Add all the common compile flags
-    foreach(FLAG ${common_compile_flags})
-        set(output "${output} ${FLAG}")
-    endforeach()
-
-    # Add all the specific compile flags
-    foreach(FLAG ${special_compile_flags})
-        set(output "${output} ${FLAG}")
-    endforeach()
-
-    # Get the location of the object file
-    file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir/${SOURCE_FILE_NAME}.${OBJ_EXTENSION})
-
-    # Add the source file and the output file
-    set(COMPILE_COMMAND "${output} -c ${SOURCE_FILE} -o ${OBJ_FILE}" PARENT_SCOPE)
+    set(COMPILE_COMMAND "${COMPILE_COMMAND}" PARENT_SCOPE)
 
     # Creating a string that contains the link command
     # Start by the compiler invocation
-    set(LINK_COMMAND "${CMAKE_CXX_COMPILER}")
+    set(LINK_COMMAND "${LINK_COMMAND}${CMAKE_CXX_COMPILER}")
 
     # Add all the common link flags
     foreach(FLAG ${common_link_flags})
@@ -204,10 +210,20 @@ function(getCompileCommands includes common_compile_flags special_compile_flags 
     # Add all the specific link flags
     foreach(FLAG ${special_link_flags})
         set(LINK_COMMAND "${LINK_COMMAND} ${FLAG}")
+    endforeach()    
+
+    # Add the output file
+    set(LINK_COMMAND "${LINK_COMMAND} -o ${output_name}")
+
+    foreach(source ${file_names})
+        # Get the relative path to the source and object files
+        file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${EMULATOR_TARGET}.dir/${source}.${OBJ_EXTENSION})
+
+        # Add the source file and the output file
+        set(LINK_COMMAND "${LINK_COMMAND} ${OBJ_FILE}")
     endforeach()
 
-    # Add the source file and the output file
-    set(LINK_COMMAND "${LINK_COMMAND} ${OBJ_FILE} -o ${output_name}" PARENT_SCOPE)
+    set(LINK_COMMAND "${LINK_COMMAND}" PARENT_SCOPE)
 
 endfunction()
 
