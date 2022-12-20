@@ -175,7 +175,9 @@ function(getCompileCommands includes common_compile_flags special_compile_flags 
 
         # Add all the potential includes
         foreach(INCLUDE ${includes})
-            file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
+            if(NOT IS_ABSOLUTE ${INCLUDE})
+                file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
+            endif()
             set(COMPILE_COMMAND "${COMPILE_COMMAND} -I${INCLUDE}")
         endforeach()
 
