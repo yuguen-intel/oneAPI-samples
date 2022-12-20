@@ -47,18 +47,11 @@ set(USER_FLAGS "${USER_FLAGS}")
 
 # Use cmake -DUSER_INCLUDE_PATHS=<paths> to set extra paths for general
 # compilation.
-set(USER_INCLUDE_PATHS "${USER_INCLUDE_PATHS}")
-
-# Specify the location of the FPGA include directory
-set(FPGA_INCLUDE_PATHS ../../../include)
+set(USER_INCLUDE_PATHS "${USER_INCLUDE_PATHS} ../../../include")
 
 ###############################################################################
 ### no changes after here
 ###############################################################################
-
-# Make cmake export the compile_commands.json file that contains the 
-# compile commands of each target
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Print the device being used for the compiles
 message(STATUS "Configuring the design to run on FPGA board ${FPGA_DEVICE}")
@@ -76,11 +69,8 @@ set(SIMULATOR_OUTPUT_NAME ${TARGET_NAME}.${SIMULATOR_TARGET})
 set(REPORT_OUTPUT_NAME ${TARGET_NAME}.${REPORT_TARGET})
 set(FPGA_OUTPUT_NAME ${TARGET_NAME}.${FPGA_TARGET})
 
-# Get the user include path
-set(INCLUDEPATHS_LIST ${USER_INCLUDE_PATHS})
-# Add the FPGA include directory location
-list(APPEND INCLUDEPATHS_LIST ${FPGA_INCLUDE_PATHS})
 # Sanitize the include path
+set(INCLUDEPATHS_LIST ${USER_INCLUDE_PATHS})
 separate_arguments(INCLUDEPATHS_LIST)
 include_directories(${INCLUDEPATHS_LIST})
 
@@ -94,8 +84,8 @@ else()
     set(QACTYPES "-qactypes")
 endif()
 
-set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Wall ${WIN_FLAG} ${QACTYPES})
-set(COMMON_LINK_FLAGS -fsycl -fintelfpga ${QACTYPES})
+set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Wall ${WIN_FLAG} ${QACTYPES} ${USER_FLAGS})
+set(COMMON_LINK_FLAGS -fsycl -fintelfpga ${QACTYPES} ${USER_FLAGS})
 
 # A SYCL ahead-of-time (AoT) compile processes the device code in two stages.
 # 1. The "compile" stage compiles the device code to an intermediate representation (SPIR-V).
@@ -121,12 +111,6 @@ target_link_libraries(${EMULATOR_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${EMULATOR_TARGET} ${EMULATOR_LINK_FLAGS})
 set_target_properties(${EMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${EMULATOR_OUTPUT_NAME})
 
-# Make cmake print the locations of the command before building
-add_custom_target( displayEmulationCommands ALL
-    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
-    COMMENT "Find the compile command in ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json (the one using FPGA_EMULATOR) and the link command in ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${EMULATOR_TARGET}.dir/link.txt")
-add_dependencies(${EMULATOR_TARGET} displayEmulationCommands)
-
 ###############################################################################
 ### FPGA Simulator
 ###############################################################################
@@ -136,12 +120,6 @@ target_compile_options(${SIMULATOR_TARGET} PRIVATE ${SIMULATOR_COMPILE_FLAGS})
 target_link_libraries(${SIMULATOR_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${SIMULATOR_TARGET} ${SIMULATOR_LINK_FLAGS})
 set_target_properties(${SIMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${SIMULATOR_OUTPUT_NAME})
-
-# Make cmake print the locations of the command before building
-add_custom_target( displaySimulationCommands ALL
-    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
-    COMMENT "Find the compile command in ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json (the one using FPGA_SIMULATOR) and the link command in ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${SIMULATOR_TARGET}.dir/link.txt")
-add_dependencies(${SIMULATOR_TARGET} displaySimulationCommands)
 
 ###############################################################################
 ### Generate Report
@@ -158,12 +136,6 @@ target_link_libraries(${REPORT_TARGET} ${MODIFIED_COMMON_LINK_FLAGS_REPORT})
 target_link_libraries(${REPORT_TARGET} ${REPORT_LINK_FLAGS})
 set_target_properties(${REPORT_TARGET} PROPERTIES OUTPUT_NAME ${REPORT_OUTPUT_NAME})
 
-# Make cmake print the locations of the command before building
-add_custom_target( displayReportCommands ALL
-    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
-    COMMENT "Find the compile command in ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json (the one using FPGA_HARDWARE with fsycl-link=early) and the link command in ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${REPORT_TARGET}.dir/link.txt")
-add_dependencies(${REPORT_TARGET} displayReportCommands)
-
 ###############################################################################
 ### FPGA Hardware
 ###############################################################################
@@ -174,8 +146,87 @@ target_link_libraries(${FPGA_TARGET} ${COMMON_LINK_FLAGS})
 target_link_libraries(${FPGA_TARGET} ${HARDWARE_LINK_FLAGS})
 set_target_properties(${FPGA_TARGET} PROPERTIES OUTPUT_NAME ${FPGA_OUTPUT_NAME})
 
-# Make cmake print the locations of the command before building
-add_custom_target( displayFPGACommands ALL
-    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
-    COMMENT "Find the compile command in ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json (the one using FPGA_HARDWARE without fsycl-link=early) and the link command in ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${FPGA_TARGET}.dir/link.txt")
-add_dependencies(${FPGA_TARGET} displayFPGACommands)
+###############################################################################
+### This part only manipulates cmake variables to print the commands to the user
+###############################################################################
+
+file(TO_NATIVE_PATH "/" SEPARATOR)
+file(RELATIVE_PATH OBJ_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}${SEPARATOR}CMakeFiles/${EMULATOR_TARGET}.dir${SEPARATOR}${SOURCE_FILE}.o)
+file(RELATIVE_PATH SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}${SEPARATOR}${SOURCE_FILE})
+
+function(getCompileCommands includes common_compile_flags special_compile_flags common_link_flags special_link_flags output_name)
+
+    # Creating a string that contains the compile command
+    # Start by the compiler invocation
+    set(output "${CMAKE_CXX_COMPILER}")
+
+    # Add all the potential includes
+    foreach(INCLUDE ${includes})
+        file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}${SEPARATOR}${INCLUDE})
+        set(output "${output} -I${INCLUDE}")
+    endforeach()
+
+    # Add all the common compile flags
+    foreach(FLAG ${common_compile_flags})
+        set(output "${output} ${FLAG}")
+    endforeach()
+
+    # Add all the specific compile flags
+    foreach(FLAG ${special_compile_flags})
+        set(output "${output} ${FLAG}")
+    endforeach()
+
+    # Add the source file and the output file
+    set(COMPILE_COMMAND "${output} -c ${SOURCE_FILE} -o ${OBJ_FILE}" PARENT_SCOPE)
+
+    # Creating a string that contains the link command
+    # Start by the compiler invocation
+    set(LINK_COMMAND "${CMAKE_CXX_COMPILER}")
+
+    # Add all the common link flags
+    foreach(FLAG ${common_link_flags})
+        set(LINK_COMMAND "${LINK_COMMAND} ${FLAG}")
+    endforeach()
+
+    # Add all the specific link flags
+    foreach(FLAG ${special_link_flags})
+        set(LINK_COMMAND "${LINK_COMMAND} ${FLAG}")
+    endforeach()
+
+    # Add the source file and the output file
+    set(LINK_COMMAND "${LINK_COMMAND} ${OBJ_FILE} -o ${output_name}" PARENT_SCOPE)
+
+endfunction()
+
+# Display the compile instructions in the emulation flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${EMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${EMULATOR_LINK_FLAGS}" "${EMULATOR_OUTPUT_NAME}")
+
+
+add_custom_target(  displayEmulationCompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${EMULATOR_TARGET} displayEmulationCompileCommands)
+
+# Display the compile instructions in the simulation flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${SIMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${SIMULATOR_LINK_FLAGS}" "${SIMULATOR_OUTPUT_NAME}")
+
+add_custom_target(  displaySimulationCompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${SIMULATOR_TARGET} displaySimulationCompileCommands)
+
+# Display the compile instructions in the report flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${REPORT_COMPILE_FLAGS}" "${MODIFIED_COMMON_LINK_FLAGS_REPORT}" "${REPORT_LINK_FLAGS}" "${REPORT_OUTPUT_NAME}")
+
+add_custom_target(  displayReportCompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${REPORT_TARGET} displayReportCompileCommands)
+
+# Display the compile instructions in the fpga flow
+getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${FPGA_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${FPGA_LINK_FLAGS}" "${FPGA_OUTPUT_NAME}")
+
+add_custom_target(  displayFPGACompileCommands ALL
+                    ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
+                    COMMENT "To compile manually:\n${COMPILE_COMMAND}\nTo link manually:\n${LINK_COMMAND}")
+add_dependencies(${FPGA_TARGET} displayFPGACompileCommands)
