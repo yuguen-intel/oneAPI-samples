@@ -19,7 +19,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 ###############################################################################
 ### Customize these build variables
 ###############################################################################
-set(SOURCE_FILE src/loop_unroll.cpp)
+set(SOURCE_FILES src/loop_unroll.cpp)
 set(TARGET_NAME loop_unroll)
 
 # Use cmake -DFPGA_DEVICE=<board-support-package>:<board-variant> to choose a
@@ -49,6 +49,12 @@ set(USER_FLAGS "${USER_FLAGS}")
 # compilation.
 set(USER_INCLUDE_PATHS "${USER_INCLUDE_PATHS} ../../../include")
 
+# Use cmake -DUSER_LIB_PATHS=<paths> to set extra paths to target_link_libraries
+set(USER_LIB_PATHS "${USER_LIB_PATHS}")
+
+# Use cmake -DUSER_LIBS=<libs> to add extra static libraries
+set(USER_LIBS "${USER_LIBS}")
+
 ###############################################################################
 ### no changes after here
 ###############################################################################
@@ -73,6 +79,16 @@ set(FPGA_OUTPUT_NAME ${TARGET_NAME}.${FPGA_TARGET})
 set(INCLUDEPATHS_LIST ${USER_INCLUDE_PATHS})
 separate_arguments(INCLUDEPATHS_LIST)
 include_directories(${INCLUDEPATHS_LIST})
+
+# Sanitize the library paths
+set(LIBPATHS_LIST ${USER_LIB_PATHS})
+separate_arguments(LIBPATHS_LIST)
+link_directories(${LIBPATHS_LIST})
+
+# Sanitize the list of libraries
+set(LIBS_LIST ${USER_LIBS})
+separate_arguments(LIBS_LIST)
+
 
 # This is a Windows-specific flag that enables exception handling in host code
 if(WIN32)
@@ -102,12 +118,12 @@ set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLA
 # use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA simulator compilation and backend compilation
 
 # Set the source file names in a string
-set(SOURCE_FILE_NAME "${SOURCE_FILE}")
+set(SOURCE_FILE_NAME "${SOURCE_FILES}")
 
 ###############################################################################
 ### FPGA Emulator
 ###############################################################################
-add_executable(${EMULATOR_TARGET} ${SOURCE_FILE})
+add_executable(${EMULATOR_TARGET} ${SOURCE_FILES})
 target_compile_options(${EMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${EMULATOR_TARGET} PRIVATE ${EMULATOR_COMPILE_FLAGS})
 target_link_libraries(${EMULATOR_TARGET} ${COMMON_LINK_FLAGS})
@@ -117,7 +133,7 @@ set_target_properties(${EMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${EMULATOR_OUTPU
 ###############################################################################
 ### FPGA Simulator
 ###############################################################################
-add_executable(${SIMULATOR_TARGET} ${SOURCE_FILE})
+add_executable(${SIMULATOR_TARGET} ${SOURCE_FILES})
 target_compile_options(${SIMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${SIMULATOR_TARGET} PRIVATE ${SIMULATOR_COMPILE_FLAGS})
 target_link_libraries(${SIMULATOR_TARGET} ${COMMON_LINK_FLAGS})
@@ -127,7 +143,7 @@ set_target_properties(${SIMULATOR_TARGET} PROPERTIES OUTPUT_NAME ${SIMULATOR_OUT
 ###############################################################################
 ### Generate Report
 ###############################################################################
-add_executable(${REPORT_TARGET} ${SOURCE_FILE})
+add_executable(${REPORT_TARGET} ${SOURCE_FILES})
 target_compile_options(${REPORT_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS})
 target_compile_options(${REPORT_TARGET} PRIVATE ${REPORT_COMPILE_FLAGS})
 
@@ -161,7 +177,7 @@ else()
 endif()
 
 
-function(getCompileCommands includes common_compile_flags special_compile_flags common_link_flags special_link_flags target output_name)
+function(getCompileCommands common_compile_flags special_compile_flags common_link_flags special_link_flags target output_name)
 
     set(file_names ${SOURCE_FILE_NAME})
     foreach(source ${file_names})
@@ -174,7 +190,7 @@ function(getCompileCommands includes common_compile_flags special_compile_flags 
         set(COMPILE_COMMAND "${COMPILE_COMMAND}${CMAKE_CXX_COMPILER}")
 
         # Add all the potential includes
-        foreach(INCLUDE ${includes})
+        foreach(INCLUDE ${INCLUDEPATHS_LIST})
             if(NOT IS_ABSOLUTE ${INCLUDE})
                 file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
             endif()
@@ -225,6 +241,23 @@ function(getCompileCommands includes common_compile_flags special_compile_flags 
         set(LINK_COMMAND "${LINK_COMMAND} ${OBJ_FILE}")
     endforeach()
 
+    # Add all the potential library paths
+    foreach(LIB_PATH ${LIBPATHS_LIST})
+        if(NOT IS_ABSOLUTE ${LIB_PATH})
+            file(RELATIVE_PATH LIB_PATH ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${LIB_PATH})
+        endif()
+        if(NOT WIN32)
+            set(LINK_COMMAND "${LINK_COMMAND} -L${LIB_PATH}")
+        else()
+            set(LINK_COMMAND "${LINK_COMMAND} -L${LIB_PATH} -Wl,-rpath,${LIB_PATH}")
+        endif()
+    endforeach()
+
+    # Add all the potential includes
+    foreach(LIB ${LIBS_LIST})
+        set(LINK_COMMAND "${LINK_COMMAND} -l${LIB}")
+    endforeach()
+
     set(LINK_COMMAND "${LINK_COMMAND}" PARENT_SCOPE)
 
 endfunction()
@@ -235,7 +268,7 @@ if(WIN32)
 endif()
 
 # Display the compile instructions in the emulation flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${EMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${EMULATOR_LINK_FLAGS}" "${EMULATOR_TARGET}" "${EMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+getCompileCommands("${COMMON_COMPILE_FLAGS}" "${EMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${EMULATOR_LINK_FLAGS}" "${EMULATOR_TARGET}" "${EMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 
 add_custom_target(  displayEmulationCompileCommands ALL
@@ -244,7 +277,7 @@ add_custom_target(  displayEmulationCompileCommands ALL
 add_dependencies(${EMULATOR_TARGET} displayEmulationCompileCommands)
 
 # Display the compile instructions in the simulation flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${SIMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${SIMULATOR_LINK_FLAGS}" "${SIMULATOR_TARGET}" "${SIMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+getCompileCommands("${COMMON_COMPILE_FLAGS}" "${SIMULATOR_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${SIMULATOR_LINK_FLAGS}" "${SIMULATOR_TARGET}" "${SIMULATOR_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 add_custom_target(  displaySimulationCompileCommands ALL
                     ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
@@ -252,7 +285,7 @@ add_custom_target(  displaySimulationCompileCommands ALL
 add_dependencies(${SIMULATOR_TARGET} displaySimulationCompileCommands)
 
 # Display the compile instructions in the report flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${REPORT_COMPILE_FLAGS}" "${MODIFIED_COMMON_LINK_FLAGS_REPORT}" "${REPORT_LINK_FLAGS}" "${REPORT_TARGET}" "${REPORT_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+getCompileCommands("${COMMON_COMPILE_FLAGS}" "${REPORT_COMPILE_FLAGS}" "${MODIFIED_COMMON_LINK_FLAGS_REPORT}" "${REPORT_LINK_FLAGS}" "${REPORT_TARGET}" "${REPORT_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 add_custom_target(  displayReportCompileCommands ALL
                     ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
@@ -260,7 +293,7 @@ add_custom_target(  displayReportCompileCommands ALL
 add_dependencies(${REPORT_TARGET} displayReportCompileCommands)
 
 # Display the compile instructions in the fpga flow
-getCompileCommands("${INCLUDEPATHS_LIST}" "${COMMON_COMPILE_FLAGS}" "${FPGA_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${FPGA_LINK_FLAGS}" "${FPGA_TARGET}" "${FPGA_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+getCompileCommands("${COMMON_COMPILE_FLAGS}" "${FPGA_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${FPGA_LINK_FLAGS}" "${FPGA_TARGET}" "${FPGA_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 add_custom_target(  displayFPGACompileCommands ALL
                     ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
