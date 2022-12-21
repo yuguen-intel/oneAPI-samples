@@ -180,6 +180,8 @@ endif()
 function(getCompileCommands common_compile_flags special_compile_flags common_link_flags special_link_flags target output_name)
 
     set(file_names ${SOURCE_FILE_NAME})
+    set(COMPILE_COMMAND )
+    set(LINK_COMMAND )
     foreach(source ${file_names})
         # Get the relative path to the source and object files
         file(RELATIVE_PATH CURRENT_SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${source})
