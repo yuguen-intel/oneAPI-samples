@@ -40,20 +40,20 @@ endif()
 
 # Use cmake -DUSER_FPGA_FLAGS=<flags> to set extra flags for FPGA backend
 # compilation. 
-set(USER_FPGA_FLAGS "${USER_FPGA_FLAGS}")
+set(FPGA_FLAGS ${USER_FPGA_FLAGS})
 
 # Use cmake -DUSER_FLAGS=<flags> to set extra flags for general compilation.
-set(USER_FLAGS "${USER_FLAGS}")
+set(EXTRA_USER_FLAGS ${USER_FLAGS})
 
 # Use cmake -DUSER_INCLUDE_PATHS=<paths> to set extra paths for general
 # compilation.
-set(USER_INCLUDE_PATHS "${USER_INCLUDE_PATHS} ../../../include")
+set(INCLUDE_PATHS ${USER_INCLUDE_PATHS} ../../../include)
 
 # Use cmake -DUSER_LIB_PATHS=<paths> to set extra paths to target_link_libraries
-set(USER_LIB_PATHS "${USER_LIB_PATHS}")
+set(LIB_PATHS ${USER_LIB_PATHS})
 
 # Use cmake -DUSER_LIBS=<libs> to add extra static libraries
-set(USER_LIBS "${USER_LIBS}")
+set(LIBS ${USER_LIBS})
 
 ###############################################################################
 ### no changes after here
@@ -75,20 +75,20 @@ set(SIMULATOR_OUTPUT_NAME ${TARGET_NAME}.${SIMULATOR_TARGET})
 set(REPORT_OUTPUT_NAME ${TARGET_NAME}.${REPORT_TARGET})
 set(FPGA_OUTPUT_NAME ${TARGET_NAME}.${FPGA_TARGET})
 
+message(STATUS "Additional USER_FPGA_FLAGS=${USER_FPGA_FLAGS}")
+message(STATUS "Additional USER_FLAGS=${USER_FLAGS}")
+
 # Sanitize the include path
-set(INCLUDEPATHS_LIST ${USER_INCLUDE_PATHS})
-separate_arguments(INCLUDEPATHS_LIST)
-include_directories(${INCLUDEPATHS_LIST})
+include_directories(${INCLUDE_PATHS})
+message(STATUS "Additional USER_INCLUDE_PATHS=${USER_INCLUDE_PATHS}")
 
 # Sanitize the library paths
-set(LIBPATHS_LIST ${USER_LIB_PATHS})
-separate_arguments(LIBPATHS_LIST)
-link_directories(${LIBPATHS_LIST})
+link_directories(${LIB_PATHS})
+message(STATUS "Additional USER_LIB_PATHS=${USER_LIB_PATHS}")
 
 # Sanitize the list of libraries
-set(LIBS_LIST ${USER_LIBS})
-separate_arguments(LIBS_LIST)
-
+link_libraries(${LIBS})
+message(STATUS "Additional USER_LIBS=${USER_LIBS}")
 
 # This is a Windows-specific flag that enables exception handling in host code
 if(WIN32)
@@ -100,8 +100,8 @@ else()
     set(QACTYPES "-qactypes")
 endif()
 
-set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Wall ${WIN_FLAG} ${QACTYPES} ${USER_FLAGS})
-set(COMMON_LINK_FLAGS -fsycl -fintelfpga ${QACTYPES} ${USER_FLAGS})
+set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Wall ${WIN_FLAG} ${QACTYPES} ${EXTRA_USER_FLAGS})
+set(COMMON_LINK_FLAGS -fsycl -fintelfpga ${QACTYPES} ${EXTRA_USER_FLAGS})
 
 # A SYCL ahead-of-time (AoT) compile processes the device code in two stages.
 # 1. The "compile" stage compiles the device code to an intermediate representation (SPIR-V).
@@ -110,12 +110,11 @@ set(COMMON_LINK_FLAGS -fsycl -fintelfpga ${QACTYPES} ${USER_FLAGS})
 set(EMULATOR_COMPILE_FLAGS -DFPGA_EMULATOR)
 set(EMULATOR_LINK_FLAGS )
 set(REPORT_COMPILE_FLAGS -DFPGA_HARDWARE)
-set(REPORT_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -fsycl-link=early)
+set(REPORT_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${FPGA_FLAGS} -fsycl-link=early)
 set(SIMULATOR_COMPILE_FLAGS -Xssimulation -DFPGA_SIMULATOR)
-set(SIMULATOR_LINK_FLAGS -Xssimulation -Xsghdl -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS})
+set(SIMULATOR_LINK_FLAGS -Xssimulation -Xsghdl -Xstarget=${FPGA_DEVICE} ${FPGA_FLAGS})
 set(HARDWARE_COMPILE_FLAGS -DFPGA_HARDWARE)
-set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -reuse-exe=${CMAKE_BINARY_DIR}/${FPGA_OUTPUT_NAME})
-# use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA simulator compilation and backend compilation
+set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${FPGA_FLAGS} -reuse-exe=${CMAKE_BINARY_DIR}/${FPGA_OUTPUT_NAME})
 
 # Set the source file names in a string
 set(SOURCE_FILE_NAME "${SOURCE_FILES}")
@@ -182,6 +181,7 @@ function(getCompileCommands common_compile_flags special_compile_flags common_li
     set(file_names ${SOURCE_FILE_NAME})
     set(COMPILE_COMMAND )
     set(LINK_COMMAND )
+
     foreach(source ${file_names})
         # Get the relative path to the source and object files
         file(RELATIVE_PATH CURRENT_SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${source})
@@ -192,7 +192,7 @@ function(getCompileCommands common_compile_flags special_compile_flags common_li
         set(COMPILE_COMMAND "${COMPILE_COMMAND}${CMAKE_CXX_COMPILER}")
 
         # Add all the potential includes
-        foreach(INCLUDE ${INCLUDEPATHS_LIST})
+        foreach(INCLUDE ${INCLUDE_PATHS})
             if(NOT IS_ABSOLUTE ${INCLUDE})
                 file(RELATIVE_PATH INCLUDE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${INCLUDE})
             endif()
@@ -244,7 +244,7 @@ function(getCompileCommands common_compile_flags special_compile_flags common_li
     endforeach()
 
     # Add all the potential library paths
-    foreach(LIB_PATH ${LIBPATHS_LIST})
+    foreach(LIB_PATH ${LIB_PATHS})
         if(NOT IS_ABSOLUTE ${LIB_PATH})
             file(RELATIVE_PATH LIB_PATH ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}/${LIB_PATH})
         endif()
@@ -256,7 +256,7 @@ function(getCompileCommands common_compile_flags special_compile_flags common_li
     endforeach()
 
     # Add all the potential includes
-    foreach(LIB ${LIBS_LIST})
+    foreach(LIB ${LIBS})
         set(LINK_COMMAND "${LINK_COMMAND} -l${LIB}")
     endforeach()
 
