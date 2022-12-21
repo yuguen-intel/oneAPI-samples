@@ -78,15 +78,12 @@ set(FPGA_OUTPUT_NAME ${TARGET_NAME}.${FPGA_TARGET})
 message(STATUS "Additional USER_FPGA_FLAGS=${USER_FPGA_FLAGS}")
 message(STATUS "Additional USER_FLAGS=${USER_FLAGS}")
 
-# Sanitize the include path
 include_directories(${INCLUDE_PATHS})
 message(STATUS "Additional USER_INCLUDE_PATHS=${USER_INCLUDE_PATHS}")
 
-# Sanitize the library paths
 link_directories(${LIB_PATHS})
 message(STATUS "Additional USER_LIB_PATHS=${USER_LIB_PATHS}")
 
-# Sanitize the list of libraries
 link_libraries(${LIBS})
 message(STATUS "Additional USER_LIBS=${USER_LIBS}")
 
