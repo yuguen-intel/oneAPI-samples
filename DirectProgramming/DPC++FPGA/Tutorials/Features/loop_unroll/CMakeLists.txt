@@ -292,7 +292,7 @@ add_custom_target(  displayReportCompileCommands ALL
 add_dependencies(${REPORT_TARGET} displayReportCompileCommands)
 
 # Display the compile instructions in the fpga flow
-getCompileCommands("${COMMON_COMPILE_FLAGS}" "${FPGA_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${FPGA_LINK_FLAGS}" "${FPGA_TARGET}" "${FPGA_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
+getCompileCommands("${COMMON_COMPILE_FLAGS}" "${HARDWARE_COMPILE_FLAGS}" "${COMMON_LINK_FLAGS}" "${HARDWARE_LINK_FLAGS}" "${FPGA_TARGET}" "${FPGA_OUTPUT_NAME}${EXECUTABLE_EXTENSION}")
 
 add_custom_target(  displayFPGACompileCommands ALL
                     ${CMAKE_COMMAND} -E cmake_echo_color --cyan ""
