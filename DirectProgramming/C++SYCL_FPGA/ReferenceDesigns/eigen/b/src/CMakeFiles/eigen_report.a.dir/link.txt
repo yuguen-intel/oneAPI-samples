@@ -1,0 +1,1 @@
+/p/psg/swip/hld/r/sycl/trunk/20221216/linux64/bin/icpx     -fsycl -fintelfpga -Xshardware  -Xsparallel=2 -Xsseed=5 -Xstarget=Agilex    -fsycl-link=early CMakeFiles/eigen_report.a.dir/eigen_demo.cpp.o  -o ../eigen_report.a 

@@ -1,0 +1,1 @@
+/p/psg/swip/hld/r/sycl/trunk/20221216/linux64/bin/icpx     -fsycl -fintelfpga -Xshardware  -Xsparallel=2 -Xsseed=5 -Xstarget=Agilex      -reuse-exe=/nfs/site/disks/swuser_work_yuguen/oneAPIdev/samples2/oneAPI-samples/DirectProgramming/C++SYCL_FPGA/ReferenceDesigns/eigen/b/eigen.fpga CMakeFiles/eigen.fpga.dir/eigen_demo.cpp.o  -o ../eigen.fpga 

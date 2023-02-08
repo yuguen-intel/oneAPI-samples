@@ -1,6 +1,7 @@
 #ifndef __STREAMING_QRD_HPP__
 #define __STREAMING_QRD_HPP__
 
+#include <sycl/ext/intel/ac_types/ac_complex.hpp>
 #include "constexpr_math.hpp"
 #include "tuple.hpp"
 #include "unrolled_loop.hpp"
