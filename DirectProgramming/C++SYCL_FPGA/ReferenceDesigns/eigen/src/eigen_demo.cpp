@@ -123,6 +123,8 @@ int main(int argc, char *argv[]) {
   std::cout << "Using 32x32 matrices for simulation to reduce runtime" << std::endl;
 #endif
 
+  constexpr bool kShift = true;
+
   // Get the number of times we want to repeat the decomposition
   // from the command line.
 // #if defined(FPGA_EMULATOR)
@@ -192,6 +194,7 @@ int main(int argc, char *argv[]) {
     float expected_eigen_values[kSize*kMatricesToDecompose];
 
     int total_iterations = 0;
+    constexpr double kThresholdMatrixGeneration = 1e-4;
 
     for(int matrix_index = 0; matrix_index < kMatricesToDecompose;
                                                                 matrix_index++){
@@ -240,6 +243,50 @@ int main(int argc, char *argv[]) {
         for (int k = 0; k<kSize*kSize; k++){
           r[k] = 0;
         }
+        
+        double shift_value = 0;
+
+        if constexpr (kShift){
+          // First find where the shift should be applied
+          // Start from the last submatrix
+          int shift_row = kSize-2;
+          for(int row=kSize-1; row>=1; row--){
+            bool row_is_zero = true;
+            for (int col=0; col<row; col++){
+              row_is_zero &= (fabs(rq[row + kSize*col]) < kThresholdMatrixGeneration);
+            }
+            if (!row_is_zero){
+              break;
+            }
+            shift_row--;
+          }  
+
+          if(shift_row>=0){
+            // Compute the shift value
+            // Take the submatrix:
+            // [a b] 
+            // [b c]
+            // and compute the shift such as
+            // mu = c - (sign(d)* b*b)/(abs(d) + sqrt(d*d + b*b))
+            // where d = (a - c)/2
+
+            double a = rq[shift_row + kSize*shift_row];
+            double b = rq[shift_row + kSize*(shift_row+1)];
+            double c = rq[(shift_row+1) + kSize*(shift_row+1)];
+
+            double d = (a - c) / 2;
+            double b_squared = b*b;
+            double d_squared = d*d;
+            double b_squared_signed = d<0 ? -b_squared : b_squared;
+            shift_value = c - b_squared_signed / (abs(d) + sqrt(d_squared + b_squared));
+          }
+
+          // Subtract the shift value from the diagonal of RQ
+          for(int row=0; row<kSize; row++){
+            rq[row + kSize*row] -= shift_value; 
+          }          
+
+        }
 
         QRD<kSize>(rq, q, r);
 
@@ -254,11 +301,18 @@ int main(int argc, char *argv[]) {
           }
         }
 
+        if constexpr (kShift){
+          // Add the shift value back to the diagonal of RQ
+          for(int row=0; row<kSize; row++){
+            rq[row + kSize*row] += shift_value; 
+          }     
+        }
+
+
         bool all_below_threshold = true;
-        constexpr double threshold = 1e-4;
         for(int row=1; row<kSize; row++){
           for(int col=0; col<(row); col++){
-            all_below_threshold &= (rq[row + kSize*col] < threshold);
+            all_below_threshold &= (rq[row + kSize*col] < kThresholdMatrixGeneration);
           }
         }
 

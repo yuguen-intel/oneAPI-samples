@@ -159,12 +159,39 @@ struct StreamingEigen {
         //   PRINTF("\n");
         // }
 
-      // 15.5478 6.72048 4.91089 2.64258
-      // bool cond = false;
+      constexpr bool kShift = true;
+
       int rows_to_compute = k_size;
       while (rows_to_compute>1) {
         T rq[k_size][4];
         T previous_givens[2][2] = {{1, 0}, {0, 1}};
+
+        T shift_value = T{0};
+        if constexpr (kShift){
+
+          // Compute the shift value
+          // Take the submatrix:
+          // [a b] 
+          // [b c]
+          // and compute the shift such as
+          // mu = c - (sign(d)* b*b)/(abs(d) + sqrt(d*d + b*b))
+          // where d = (a - c)/2
+          T a = rows_to_compute-2 < 0 ? T{0} : a_tri_diag[rows_to_compute-2][1];
+          T b = rows_to_compute-1 < 0 ? T{0} : a_tri_diag[rows_to_compute-1][0];
+          T c = rows_to_compute-1 < 0 ? T{0} : a_tri_diag[rows_to_compute-1][1];
+
+          T d = (a - c) / 2;
+          T b_squared = b*b;
+          T d_squared = d*d;
+          T b_squared_signed = d<0 ? -b_squared : b_squared;
+          shift_value = c - b_squared_signed / (abs(d) + sqrt(d_squared + b_squared));
+
+          // Subtract the shift from the diagonal of RQ
+          for (int row = 0; row < rows_to_compute; row++) {
+            a_tri_diag[row][1] -= shift_value;
+          }
+        }
+
 
         // Go through the rows by pairs
         for (int row = 0; row < rows_to_compute; row++) {
@@ -352,6 +379,14 @@ struct StreamingEigen {
             }
           }
         }
+
+        if constexpr (kShift){
+          // Add the shift back to the diagonal of RQ
+          for (int row = 0; row < rows_to_compute; row++) {
+            a_tri_diag[row][1] += shift_value;
+          }
+        }
+
         // PRINTF("a_tri_diag\n");
         // for(int row=0; row<k_size; row++){
         //   for(int col=0; col<4; col++){
