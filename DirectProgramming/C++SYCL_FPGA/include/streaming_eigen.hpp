@@ -192,6 +192,13 @@ struct StreamingEigen {
           }
         }
 
+        PRINTF("a_tri_diag before QR\n");
+        for(int row=0; row<k_size; row++){
+          for(int col=0; col<4; col++){
+            PRINTF("%f ", a_tri_diag[row][col]);
+          }
+          PRINTF("\n");
+        }
 
         // Go through the rows by pairs
         for (int row = 0; row < rows_to_compute; row++) {
@@ -279,13 +286,22 @@ struct StreamingEigen {
           }
       // if (rows_to_compute-1 == row){
 
-      //     PRINTF("a_tri_diag after QRD\n");
-      //     for(int row=0; row<k_size; row++){
-      //       for(int col=0; col<4; col++){
-      //         PRINTF("%f ", a_tri_diag[row][col]);
-      //       }
-      //       PRINTF("\n");
-      //     }
+          PRINTF("a_tri_diag after QRD\n");
+          for(int row=0; row<k_size; row++){
+            for(int col=0; col<4; col++){
+              PRINTF("%f ", a_tri_diag[row][col]);
+            }
+            PRINTF("\n");
+          }
+
+          PRINTF("rq after QRD\n");
+          for(int row=0; row<k_size; row++){
+            for(int col=0; col<4; col++){
+              PRINTF("%f ", rq[row][col]);
+            }
+            PRINTF("\n");
+          }
+
       // }
 
           // PRINTF("rq\n");
@@ -322,16 +338,18 @@ struct StreamingEigen {
                        ? T{0}
                        : rq[current_row][col + 1];
             for (int i = 0; i < 2; i++) {
-              // PRINTF("computing rq %d %d\n", current_row, col+i);
-              // PRINTF("taking %f %f\n", a0, previous_givens[0][i]);
-              // PRINTF("taking %f %f\n", a1, previous_givens[1][i]);
+              PRINTF("computing rq %d %d\n", current_row, col+i);
+              PRINTF("taking %f %f\n", a0, previous_givens[0][i]);
+              PRINTF("taking %f %f\n", a1, previous_givens[1][i]);
               T dot_product = a0 * previous_givens[0][i];
               dot_product += a1 * previous_givens[1][i];
-              // PRINTF("= %f\n", dot_product);
+              PRINTF("= %f\n", dot_product);
 
               if (current_row >= 0 && current_row < k_size && col + i >= 0 &&
                   col + i < 4 && row > 0) {
-                if (current_row == k_size - 1) {
+                bool last_row_last_elem = (current_row == k_size - 1) && (col + i == 1);
+                bool previous_to_last_row_last_elem = (current_row == k_size - 2) && (col + i == 2);
+                if (last_row_last_elem || previous_to_last_row_last_elem) {
                   rq[current_row][col + i] = -dot_product;
                 } else {
                   rq[current_row][col + i] = dot_product;
@@ -340,13 +358,15 @@ struct StreamingEigen {
             }
           }
 
-          // PRINTF("rq modified\n");
-          // for(int row=0; row<k_size; row++){
-          //   for(int col=0; col<4; col++){
-          //     PRINTF("%f ", rq[row][col]);
-          //   }
-          //   PRINTF("\n");
-          // }
+          PRINTF("rq modified\n");
+          for(int row=0; row<k_size; row++){
+            for(int col=0; col<4; col++){
+              PRINTF("%f ", rq[row][col]);
+            }
+            PRINTF("\n");
+          }
+            PRINTF("\n");
+            PRINTF("\n");
 
           for (int i = 0; i < 2; i++) {
             for (int j = 0; j < 2; j++) {
@@ -380,6 +400,14 @@ struct StreamingEigen {
           }
         }
 
+        PRINTF("rq \n");
+        for(int row=0; row<k_size; row++){
+          for(int col=0; col<4; col++){
+            PRINTF("%f ", rq[row][col]);
+          }
+          PRINTF("\n");
+        }
+
         if constexpr (kShift){
           // Add the shift back to the diagonal of RQ
           for (int row = 0; row < rows_to_compute; row++) {
@@ -411,6 +439,10 @@ struct StreamingEigen {
         // cond = reached;
         // cond = iteration==0;
         iterations++;
+        // if(iterations==2){
+        //   PRINTF("NEEEEEEEEXXXXXXXXXXXXXXXXXXXXTTTT\n");
+        //   exit(0);
+        // }
         // if(iteration>10000){
         //   PRINTF("TOO MANY ITERATIONS!!!\n");
         //   for (int row = 0; row < k_size; row++) {
