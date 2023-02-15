@@ -145,7 +145,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  constexpr size_t kMatricesToDecompose = 1024;
+  constexpr size_t kMatricesToDecompose = 1;
 // #if defined(FPGA_SIMULATOR)
 //   constexpr size_t kMatricesToDecompose = 1;
 // #else
@@ -319,31 +319,29 @@ int main(int argc, char *argv[]) {
         cond = all_below_threshold;
 
       // #ifdef DEBUG
-      //   if(iterations == 0){
-      //     std::cout << "Q MATRIX " << matrix_index << std::endl;
-      //     for (size_t row = 0; row < kSize; row++) {
-      //       for (size_t col = 0; col < kSize; col++) {
-      //         std::cout << q[col * kSize + row] << " ";
-      //       }  // end of col
-      //       std::cout << std::endl;
-      //     }  // end of row
+          // std::cout << "Q MATRIX " << matrix_index << std::endl;
+          // for (size_t row = 0; row < kSize; row++) {
+          //   for (size_t col = 0; col < kSize; col++) {
+          //     std::cout << q[col * kSize + row] << " ";
+          //   }  // end of col
+          //   std::cout << std::endl;
+          // }  // end of row
 
-      //     std::cout << "R MATRIX " << matrix_index << std::endl;
-      //     for (size_t row = 0; row < kSize; row++) {
-      //       for (size_t col = 0; col < kSize; col++) {
-      //         std::cout << r[col * kSize + row] << " ";
-      //       }  // end of col
-      //       std::cout << std::endl;
-      //     }  // end of row
+          // std::cout << "R MATRIX " << matrix_index << std::endl;
+          // for (size_t row = 0; row < kSize; row++) {
+          //   for (size_t col = 0; col < kSize; col++) {
+          //     std::cout << r[col * kSize + row] << " ";
+          //   }  // end of col
+          //   std::cout << std::endl;
+          // }  // end of row
 
-      //     std::cout << "RQ MATRIX " << matrix_index << std::endl;
-      //     for (size_t row = 0; row < kSize; row++) {
-      //       for (size_t col = 0; col < kSize; col++) {
-      //         std::cout << rq[col * kSize + row] << " ";
-      //       }  // end of col
-      //       std::cout << std::endl;
-      //     }  // end of row
-      //   }
+          // std::cout << "RQ MATRIX " << matrix_index << std::endl;
+          // for (size_t row = 0; row < kSize; row++) {
+          //   for (size_t col = 0; col < kSize; col++) {
+          //     std::cout << rq[col * kSize + row] << " ";
+          //   }  // end of col
+          //   std::cout << std::endl;
+          // }  // end of row
       // #endif
 
           iterations++;
@@ -360,14 +358,13 @@ int main(int argc, char *argv[]) {
         total_iterations += iterations;
         // std::cout << "expected eigen values after " << iterations << " iterations:" << std::endl;
         for(int k=0; k<kSize; k++){
-        //   std::cout << r[k + kSize*k] << " ";
-          expected_eigen_values[k + matrix_index*kSize] = r[k + kSize*k]; 
+          // std::cout << rq[k + kSize*k] << " ";
+          expected_eigen_values[k + matrix_index*kSize] = rq[k + kSize*k]; 
         }
         // std::cout << std::endl;
       }
 
     } // end of matrix_index
-
 
     std::cout << "Average number of iterations using the regular QR iterations: " << total_iterations/kMatricesToDecompose << std::endl;
 
@@ -429,13 +426,13 @@ int main(int argc, char *argv[]) {
 
       for (size_t i = 0; i < kSize; i++) {
 
-        bool found_a_matching_eigen_value = (fabs(eigen_values_matrix_op[i]) -fabs(expected_eigen_values[matrix_index * kSize + i])) > kErrorThreshold;
+        bool found_a_matching_eigen_value = fabs(fabs(eigen_values_matrix_op[i]) -fabs(expected_eigen_values[matrix_index * kSize + i])) <= kErrorThreshold;
 
         // It may be that the eigen values are not in the same order.
         if(!found_a_matching_eigen_value) {
 
-          for (size_t i = 0; i < kSize; i++) {
-            if((fabs(eigen_values_matrix_op[i]) - expected_eigen_values[matrix_index * kSize + i]) <= kErrorThreshold){
+          for (size_t j = 0; j < kSize; j++) {
+            if(fabs(fabs(eigen_values_matrix_op[i]) - fabs(expected_eigen_values[matrix_index * kSize + j])) <= kErrorThreshold){
               found_a_matching_eigen_value = true;
               break;
             }
