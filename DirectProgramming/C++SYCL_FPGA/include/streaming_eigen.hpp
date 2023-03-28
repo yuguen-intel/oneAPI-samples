@@ -61,7 +61,6 @@ struct StreamingEigen {
     int iterations = 0;
     int matrices_computed = 0;
 
-
     // Compute Eigen values as long as matrices are given as inputs
     while (1) {
       // Three copies of the full matrix, so that each matrix has a single
@@ -151,40 +150,61 @@ struct StreamingEigen {
         });
       }
 
-        // PRINTF("a_tri_diag\n");
-        // for(int row=0; row<k_size; row++){
-        //   for(int col=0; col<4; col++){
-        //     PRINTF("%f ", a_tri_diag[row][col]);
-        //   }
-        //   PRINTF("\n");
-        // }
+      // PRINTF("a_tri_diag\n");
+      // for(int row=0; row<k_size; row++){
+      //   for(int col=0; col<4; col++){
+      //     PRINTF("%f ", a_tri_diag[row][col]);
+      //   }
+      //   PRINTF("\n");
+      // }
 
-      constexpr bool kShift = true;
+      constexpr bool kShift = false;
 
       int rows_to_compute = k_size;
-      while (rows_to_compute>1) {
+      while (rows_to_compute > 1) {
+      // while (rows_to_compute > 1) {
+        PRINTF("========================================================\n");
         T rq[k_size][4];
-        T previous_givens[2][2] = {{1, 0}, {0, 1}};
+
+        for (int row = 0; row < k_size; row++) {
+          for (int col = 0; col < 4; col++) {
+            rq[row][col] = -1;
+          }
+        }
+
+        T givens_it_minus_1[2][2] = {{1, 0}, {0, 1}};
+        T givens_it_minus_2[2][2] = {{1, 0}, {0, 1}};
+
+        T a_result_rq_buffer[3][4];
+
+        for (int row = 0; row < 3; row++) {
+          for (int col = 0; col < 4; col++) {
+            a_result_rq_buffer[row][col] = -66;
+          }
+        }
 
         T shift_value = T{0};
-        if constexpr (kShift){
-
+        if constexpr (kShift) {
           // Compute the shift value
           // Take the submatrix:
-          // [a b] 
+          // [a b]
           // [b c]
           // and compute the shift such as
           // mu = c - (sign(d)* b*b)/(abs(d) + sqrt(d*d + b*b))
           // where d = (a - c)/2
-          T a = rows_to_compute-2 < 0 ? T{0} : a_tri_diag[rows_to_compute-2][1];
-          T b = rows_to_compute-1 < 0 ? T{0} : a_tri_diag[rows_to_compute-1][0];
-          T c = rows_to_compute-1 < 0 ? T{0} : a_tri_diag[rows_to_compute-1][1];
+          T a = rows_to_compute - 2 < 0 ? T{0}
+                                        : a_tri_diag[rows_to_compute - 2][1];
+          T b = rows_to_compute - 1 < 0 ? T{0}
+                                        : a_tri_diag[rows_to_compute - 1][0];
+          T c = rows_to_compute - 1 < 0 ? T{0}
+                                        : a_tri_diag[rows_to_compute - 1][1];
 
           T d = (a - c) / 2;
-          T b_squared = b*b;
-          T d_squared = d*d;
-          T b_squared_signed = d<0 ? -b_squared : b_squared;
-          shift_value = c - b_squared_signed / (abs(d) + sqrt(d_squared + b_squared));
+          T b_squared = b * b;
+          T d_squared = d * d;
+          T b_squared_signed = d < 0 ? -b_squared : b_squared;
+          shift_value =
+              c - b_squared_signed / (abs(d) + sqrt(d_squared + b_squared));
 
           // Subtract the shift from the diagonal of RQ
           for (int row = 0; row < rows_to_compute; row++) {
@@ -193,211 +213,212 @@ struct StreamingEigen {
         }
 
         PRINTF("a_tri_diag before QR\n");
-        for(int row=0; row<k_size; row++){
-          for(int col=0; col<4; col++){
+        for (int row = 0; row < k_size; row++) {
+          for (int col = 0; col < 4; col++) {
             PRINTF("%f ", a_tri_diag[row][col]);
           }
           PRINTF("\n");
         }
 
-        // Go through the rows by pairs
-        for (int row = 0; row < rows_to_compute; row++) {
-      // if (row == 0){
-      //     PRINTF("a_tri_diag at i=%d\n", iteration);
-      //     for(int row=0; row<k_size; row++){
-      //       for(int col=0; col<4; col++){
-      //         PRINTF("%f ", a_tri_diag[row][col]);
-      //       }
-      //       PRINTF("\n");
-      //     }
-      // }
+        T last_rq_val = -55;
 
-          // Take the diagonal element and the one below it
-          T x = a_tri_diag[row][1];
-          T y = row + 1 > k_size - 1 ? T{0} : a_tri_diag[row + 1][0];
-
-          // PRINTF ("Givens parameters %f %f\n", x, y);
-
-          // Compute the Givens rotation matrix
-          // // c = sqrt(x*x + y*y) / (x + y*y/x)
-          // // s = -c * y/x
-          // T x_squared = x*x;
-          // T y_squared = y*y;
-          // T c = sqrt(x_squared + y_squared) / (x + y_squared/x);
-          // T s = -c*y/x;
-
-          // c = x/sqrt(x*x + y*y)
-          // s = -y/sqrt(x*x + y*y)
-          T x_squared = x * x;
-          T y_squared = y * y;
-          T norm = sycl::sqrt(x_squared + y_squared);
-          T sign = x >= 0 ? 1 : -1;
-          T c = sign * x / norm;
-          T s = sign * -y / norm;
+        for (int row = 0; row < k_size + 1; row++) {
+          PRINTF("-------------------------------------------------------\n");
 
           T givens[2][2];
-          givens[0][0] = c;
-          givens[0][1] = -s;
-          givens[1][0] = s;
-          givens[1][1] = c;
 
-          // PRINTF ("Givens \n");
-          // for (int i=0; i<2; i++){
-          //   for (int j=0; j<2; j++){
-          //     PRINTF ("%f ", givens[i][j]);
-          //   }
-          //   PRINTF ("\n");
-          // }
+          if (row < k_size) {
+            // Take the diagonal element and the one below it
+            T x = a_tri_diag[row][1];
+            T y = row + 1 > k_size - 1 ? T{0} : a_tri_diag[row + 1][0];
 
-          if (row < k_size - 1) {
-            // Muliply the Givens rotation matrix with the appropriate rows of A
+            // Compute the Givens rotation matrix
+            T x_squared = x * x;
+            T y_squared = y * y;
+            T norm = sycl::sqrt(x_squared + y_squared);
+            T sign = x >= 0 ? 1 : -1;
+            T c = sign * x / norm;
+            T s = sign * -y / norm;
+
+            // The final Givens matrix must be (-1 0, 0 1)
+            // to get the correct sign for the final value of A
+
+            givens[0][0] = row == (k_size - 1) ? -1 : c;
+            givens[0][1] = row == (k_size - 1) ? 0 : -s;
+            givens[1][0] = row == (k_size - 1) ? 0 : s;
+            givens[1][1] = row == (k_size - 1) ? 1 : c;
+
+            // PRINTF("Givens \n");
+            // for (int i = 0; i < 2; i++) {
+            //   for (int j = 0; j < 2; j++) {
+            //     PRINTF("%f ", givens[i][j]);
+            //   }
+            //   PRINTF("\n");
+            // }
+
+            /*
+              Compute the sub product givens*A
+              This only affect two rows of A
+              Here with the example of the first givens matrix
+                         (a00 a01 a02 a03)
+                         (a10 a11 a12 a13)
+                  x      (a20 a21 a22 a23)
+                         (a30 a31 a32 a33)
+
+              (c -s 0 0) (a0  b0  c0  d0 )
+              (s  c 0 0) (a1  b1  c1  d1 )
+              (0  0 1 0) (a20 a21 a22 a23)
+              (0  0 0 1) (a30 a31 a32 a33)
+
+            */
             for (int j = 0; j < 4; j++) {
-              T a0 = (j == 3) ? T{0} : a_tri_diag[row][j + 1];
-              T a1 = a_tri_diag[row + 1][j];
-              for (int i = 0; i < 2; i++) {
-                T dot_product = givens[i][0] * a0;
-                dot_product += givens[i][1] * a1;
+              // Go through all the columns of A
+              // Because A is tridiagonal, there are only 3 columns, but we
+              // need one more for intermediate results
 
-                // Handling the last row a buit differently to avoid doing on
-                // extra iteration
-                if(i + row < rows_to_compute){
-                  if (i + row == k_size - 1) {
-                    if (j > 0) {
-                      a_tri_diag[row + i][j - 1] = -dot_product;
-                    }
-                  } else {
-                    a_tri_diag[row + i][j] = dot_product;
-                  }
+              // Take the first two elements of the current column of A
+              // Continuing with the previous example: a00 and a10
+              T a0 = (j == 3) ? T{0} : a_tri_diag[row][j + 1];
+              T a1 = (row + 1) >= k_size ? T{0} : a_tri_diag[row + 1][j];
+
+              // Go through the two affected rows
+              for (int i = 0; i < 2; i++) {
+                T new_a_element = givens[i][0] * a0 + givens[i][1] * a1;
+                // Don't write beyond the last matrix row
+                if (row != (k_size - 1) || (i == 0)) {
+                  a_tri_diag[row + i][j] = new_a_element;
                 }
 
                 if (i == 0) {
-                  if (j + 1 > k_size - 1) {
-                    rq[row][0] = 0;
-                  } else {
-                    rq[row][j + 1] = dot_product;
-                  }
-                } else if (row + 1 == k_size - 1) {
-                  if (j == 1) {
-                    rq[row + 1][j] = -dot_product;
-                  } else {
-                    rq[row + 1][j] = 0;
-                  }
+                  a_result_rq_buffer[2][j] = new_a_element;
                 }
-              }
-            }
-          }
-      // if (rows_to_compute-1 == row){
 
-          PRINTF("a_tri_diag after QRD\n");
-          for(int row=0; row<k_size; row++){
-            for(int col=0; col<4; col++){
+              }  // end of i
+
+            }  // end of j
+
+          }  // end of if (row < k_size)
+
+          // PRINTF("a_result_rq_buffer\n");
+          // for (int row = 0; row < 3; row++) {
+          //   for (int col = 0; col < 4; col++) {
+          //     PRINTF("%f ", a_result_rq_buffer[row][col]);
+          //   }
+          //   PRINTF("\n");
+          // }
+
+          // PRINTF("Current givens \n");
+          // for (int i = 0; i < 2; i++) {
+          //   for (int j = 0; j < 2; j++) {
+          //     PRINTF("%f ", givens[i][j]);
+          //   }
+          //   PRINTF("\n");
+          // }
+
+          // PRINTF("Givens m1\n");
+          // for (int i = 0; i < 2; i++) {
+          //   for (int j = 0; j < 2; j++) {
+          //     PRINTF("%f ", givens_it_minus_1[i][j]);
+          //   }
+          //   PRINTF("\n");
+          // }
+
+          // PRINTF("Givens m2\n");
+          // for (int i = 0; i < 2; i++) {
+          //   for (int j = 0; j < 2; j++) {
+          //     PRINTF("%f ", givens_it_minus_2[i][j]);
+          //   }
+          //   PRINTF("\n");
+          // }
+
+          if (row > 0) {
+            int rq_col = row - 1;
+            T g_prod_col[3] = {
+                givens_it_minus_2[0][1] * givens_it_minus_1[0][0],
+                givens_it_minus_2[1][1] * givens_it_minus_1[0][0],
+                givens_it_minus_1[1][0]};
+
+            // PRINTF("g_prod_col: %f %f %f\n", g_prod_col[0], g_prod_col[1],
+            //        g_prod_col[2]);
+
+            // PRINTF("RQ value at %d: %f \n", rq_col, last_rq_val);
+            T dot_prod_val[2];
+            T last_dp_val;
+            for (int rq_row = 0; rq_row < 2; rq_row++) {
+              T value = 0;
+              // PRINTF("value = 0");
+              for (int k = 0; k < 3; k++) {
+                T g_prod_col_val =
+                    (k + rq_row + 1) > 2 ? T{0} : g_prod_col[k + rq_row + 1];
+                T a_result_rq_buffer_val = a_result_rq_buffer[rq_row + 1][k];
+                value += a_result_rq_buffer_val * g_prod_col_val;
+                // PRINTF(" + (%f * %f)", a_result_rq_buffer_val, g_prod_col_val);
+              }
+              // PRINTF(" = %f\n", value);
+              dot_prod_val[rq_row] = value;
+              last_dp_val = value;
+            }
+
+            for (int row_rq = 0; row_rq < k_size; row_rq++) {
+              T rq_value;
+              if (row_rq == rq_col) {
+                rq_value = dot_prod_val[0];
+              } else if (row_rq == (rq_col + 1)) {
+                rq_value = dot_prod_val[1];
+              } else if (row_rq == (rq_col - 1)) {
+                rq_value = last_rq_val;
+              } else {
+                rq_value = 0;
+              }
+
+              rq[row_rq][(rq_col+1-row_rq+4)%4] = rq_value;
+            }
+
+            last_rq_val = last_dp_val;
+          }
+
+
+          PRINTF("a_tri_diag at row=%d\n", row);
+          for (int row = 0; row < k_size; row++) {
+            for (int col = 0; col < 4; col++) {
               PRINTF("%f ", a_tri_diag[row][col]);
             }
             PRINTF("\n");
           }
 
-          // PRINTF("rq after QRD\n");
-          // for(int row=0; row<k_size; row++){
-          //   for(int col=0; col<4; col++){
-          //     PRINTF("%f ", rq[row][col]);
-          //   }
-          //   PRINTF("\n");
-          // }
-
-      // }
-
-          PRINTF("rq initialisation\n");
-          for(int row=0; row<k_size; row++){
-            for(int col=0; col<4; col++){
+          PRINTF("rq at row=%d\n", row);
+          for (int row = 0; row < k_size; row++) {
+            for (int col = 0; col < 4; col++) {
               PRINTF("%f ", rq[row][col]);
             }
             PRINTF("\n");
           }
 
-          //   PRINTF ("Previous Givens \n");
-          //   for (int i=0; i<2; i++){
-          //     for (int j=0; j<2; j++){
-          //       PRINTF ("%f ", previous_givens[i][j]);
-          //     }
-          //     PRINTF ("\n");
-          //   }
-
-          // PRINTF("row= %d\n", row);
-          // Compute R*Q
-          // Muliply the Givens rotation matrix with the appropriate rows of A
-          for (int j = 0; j < 4; j++) {
-            int current_row = j - 2 + row - 1;
-            int col = 1 - j + 2;
-            // PRINTF("Reading rq[%d][%d]\n", current_row, col);
-            // PRINTF("Reading rq[%d][%d]\n", current_row, col+1);
-
-            T a0 = current_row < 0 || current_row > k_size - 1 || col < 0 ||
-                           col > k_size - 1
-                       ? T{0}
-                       : rq[current_row][col];
-            T a1 = current_row < 0 || current_row > k_size - 1 || col + 1 < 0 ||
-                           col + 1 > k_size - 1
-                       ? T{0}
-                       : rq[current_row][col + 1];
-            for (int i = 0; i < 2; i++) {
-              // PRINTF("computing rq %d %d\n", current_row, col+i);
-              // PRINTF("taking %f %f\n", a0, previous_givens[0][i]);
-              // PRINTF("taking %f %f\n", a1, previous_givens[1][i]);
-              T dot_product = a0 * previous_givens[0][i];
-              dot_product += a1 * previous_givens[1][i];
-              // PRINTF("= %f\n", dot_product);
-            PRINTF("Current row %d col %d\n", current_row, col+i);
-            PRINTF("row %d rows_to_compute %d\n", row, rows_to_compute);
-
-              if (current_row >= 0 && current_row < rows_to_compute && col + i >= 0 &&
-                  col + i < 4 && row > 0) {
-                bool last_row_last_elem = (current_row == k_size - 1) && (col + i == 1);
-                bool previous_to_last_row_last_elem = (current_row == k_size - 2) && (col + i == 2);
-                PRINTF("Writing rq %d %d\n", current_row, col+i);
-                if (last_row_last_elem || previous_to_last_row_last_elem) {
-                  rq[current_row][col + i] = -dot_product;
-                } else {
-                  rq[current_row][col + i] = dot_product;
-                }
-              }
+          for (int row = 0; row < 2; row++) {
+            for (int col = 0; col < 4; col++) {
+              a_result_rq_buffer[row][col] = a_result_rq_buffer[row + 1][col];
             }
           }
 
-          PRINTF("rq modified\n");
-          for(int row=0; row<k_size; row++){
-            for(int col=0; col<4; col++){
-              PRINTF("%f ", rq[row][col]);
-            }
-            PRINTF("\n");
-          }
-            PRINTF("\n");
-          //   PRINTF("\n");
+          // Store the previous Givens matrix for the computation of RQ
+          // Also transpose this matrix
+          givens_it_minus_2[0][0] = givens_it_minus_1[0][0];
+          givens_it_minus_2[0][1] = givens_it_minus_1[0][1];
+          givens_it_minus_2[1][0] = givens_it_minus_1[1][0];
+          givens_it_minus_2[1][1] = givens_it_minus_1[1][1];
 
-          for (int i = 0; i < 2; i++) {
-            for (int j = 0; j < 2; j++) {
-              if (i == j) {
-                previous_givens[i][j] = givens[i][j];
-              } else {
-                previous_givens[i][j] = -givens[i][j];
-              }
-            }
-          }
-        }
+          givens_it_minus_1[0][0] = givens[0][0];
+          givens_it_minus_1[0][1] = -givens[0][1];
+          givens_it_minus_1[1][0] = -givens[1][0];
+          givens_it_minus_1[1][1] = givens[1][1];
 
-      // if (matrix_index == 26){
-        // PRINTF("rq\n");
-        // for(int row=0; row<k_size; row++){
-        //   for(int col=0; col<4; col++){
-        //     PRINTF("%f ", rq[row][col]);
-        //   }
-        //   PRINTF("\n");
-        // }
-      // }
+        }  // end of row
 
+        // exit(0);
 
 
         // Copy RQ in A
-        for (int row = 0; row < rows_to_compute; row++) {
+        for (int row = 0; row < k_size; row++) {
           for (int col = 0; col < 4; col++) {
             if (col == 3) {
               a_tri_diag[row][col] = T{0};
@@ -407,17 +428,15 @@ struct StreamingEigen {
           }
         }
 
-        PRINTF("rq \n");
-        for(int row=0; row<k_size; row++){
-          for(int col=0; col<4; col++){
-            PRINTF("%f ", rq[row][col]);
-          }
-          PRINTF("\n");
-        }
+        // PRINTF("rq \n");
+        // for(int row=0; row<k_size; row++){
+        //   for(int col=0; col<4; col++){
+        //     PRINTF("%f ", rq[row][col]);
+        //   }
+        //   PRINTF("\n");
+        // }
 
-
-
-        if constexpr (kShift){
+        if constexpr (kShift) {
           // Add the shift back to the diagonal of RQ
           for (int row = 0; row < rows_to_compute; row++) {
             a_tri_diag[row][1] += shift_value;
@@ -433,11 +452,10 @@ struct StreamingEigen {
         }
         // check if condition is reached
         float constexpr threshold = 1e-3;
-        if(sycl::fabs(rq[rows_to_compute-1][0]) < threshold){
+        if (sycl::fabs(rq[rows_to_compute - 1][0]) < threshold) {
           rows_to_compute--;
-          PRINTF("REDUCING ROWS TO COMPUTE TO %d\n", rows_to_compute);
         }
-     
+
         // if(rows_to_compute==1){
         //   PRINTF("a_tri_diag 0 0 %f\n", sycl::fabs(a_tri_diag[0][0]));
         //   if(sycl::fabs(a_tri_diag[rows_to_compute-1][0]) > threshold){
@@ -446,8 +464,9 @@ struct StreamingEigen {
         // }
 
         // bool reached = true;
+        // // //
         // // PRINTF("===============================================================");
-        // // PRINTF("checking... ");
+        // // // PRINTF("checking... ");
         // for (int row = 1; row < k_size; row++) {
         //   // PRINTF("%f ", fabs(rq[row][0]));
         //   reached &= sycl::fabs(rq[row][0]) < threshold;
@@ -470,8 +489,9 @@ struct StreamingEigen {
 
       matrices_computed++;
 
-      if(matrices_computed == 1024){
-        PRINTF("Average number of iterations: %d\n", iterations/matrices_computed);
+      if (matrices_computed == 1024) {
+        PRINTF("Average number of iterations: %d\n",
+               iterations / matrices_computed);
       }
 
       // PRINTF("a_tri_diag\n");
@@ -487,7 +507,6 @@ struct StreamingEigen {
       }
 
       // PRINTF("iteration %d\n", iteration);
-
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (int r_idx = 0; r_idx < k_size; r_idx++) {

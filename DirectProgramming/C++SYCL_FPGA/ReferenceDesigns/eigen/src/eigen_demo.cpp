@@ -216,6 +216,22 @@ int main(int argc, char *argv[]) {
         }  // end of col
       }    // end of row
 
+a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 0] = 3;
+a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 0] = 2;
+a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 0] = 0;
+a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 0] = 0;
+a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 1] = 2;
+a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 1] = 7;
+a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 1] = 8;
+a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 1] = 0;
+a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 2] = 0;
+a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 2] = 8;
+a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 2] = 4;
+a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 2] = 6;
+a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 3] = 0;
+a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 3] = 0;
+a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 3] = 6;
+a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 3] = 6;
 
   // #ifdef DEBUG
   //     std::cout << "A MATRIX " << matrix_index << std::endl;
