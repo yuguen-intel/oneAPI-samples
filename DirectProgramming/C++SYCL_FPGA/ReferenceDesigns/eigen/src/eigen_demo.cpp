@@ -234,14 +234,14 @@ a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 3] = 6;
 a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 3] = 6;
 
   // #ifdef DEBUG
-  //     std::cout << "A MATRIX " << matrix_index << std::endl;
-  //     for (size_t row = 0; row < kSize; row++) {
-  //       for (size_t col = 0; col < kSize; col++) {
-  //         std::cout << a_matrix[matrix_index * kAMatrixSize
-  //                             + col * kSize + row] << " ";
-  //       }  // end of col
-  //       std::cout << std::endl;
-  //     }  // end of row
+      std::cout << "A MATRIX " << matrix_index << std::endl;
+      for (size_t row = 0; row < kSize; row++) {
+        for (size_t col = 0; col < kSize; col++) {
+          std::cout << a_matrix[matrix_index * kAMatrixSize
+                              + col * kSize + row] << " ";
+        }  // end of col
+        std::cout << std::endl;
+      }  // end of row
   // #endif
 
       int iterations = 0;
