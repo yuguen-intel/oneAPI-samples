@@ -161,7 +161,7 @@ void MatrixReadPipeToDDR(
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
+      for (int li = 0; li < kLoopIter; li++) {
         fpga_tools::NTuple<TT, num_elem_per_bank> pipe_read =
                                                             MatrixPipe::read();
 
@@ -188,7 +188,7 @@ void MatrixReadPipeToDDR(
           }
           else{
             matrix_ptr_located[matrix_index * kMatrixSize
-              + int(li) * num_elem_per_bank + k] = pipe_read.template get<k>();
+              + li * num_elem_per_bank + k] = pipe_read.template get<k>();
           }
 
         });
