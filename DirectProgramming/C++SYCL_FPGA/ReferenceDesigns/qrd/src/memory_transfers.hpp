@@ -134,7 +134,7 @@ void MatrixReadPipeToDDR(
   // Number of DDR burst of num_elem_per_bank to write all the matrices
   constexpr int kLoopIter = kLoopIterPerColumn * columns;
   // Size in bits of the loop iterator over kLoopIter iterations
-  constexpr int kLoopIterBitSize = fpga_tools::BitsForMaxValue<kLoopIter + 1>();
+  //constexpr int kLoopIterBitSize = fpga_tools::BitsForMaxValue<kLoopIter + 1>();
   // Size of a full matrix
   constexpr int kMatrixSize = rows * columns;
 
