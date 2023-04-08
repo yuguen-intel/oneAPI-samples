@@ -316,7 +316,7 @@ struct StreamingQRD {
           // for the "working copy" a_compute to contain data.
           // If no i iteration elapsed, we must read the column of
           // matrix A directly from the a_load; col then contains a_j
-          if (i_gt_0.template get<k>() && j_ge_0.template get<k>() {
+          if (i_gt_0.template get<k>() && j_ge_0.template get<k>()) {
             col = sycl::ext::intel::fpga_reg(a_compute[j].template get<k>());
           }
           // Using an else statement makes the compiler throw an
@@ -344,11 +344,13 @@ struct StreamingQRD {
                                           TT{0.0} : s_or_ir_j.template get<k>();
           auto add = j_eq_i.template get<k>() ? TT{0.0} : col;
 
+/*
           // Adding pipeline stage before the multadd to help routing larger
           // designs
           prod_lhs = sycl::ext::intel::fpga_reg(prod_lhs);
           prod_rhs = sycl::ext::intel::fpga_reg(prod_rhs);
           add = sycl::ext::intel::fpga_reg(add);
+*/
 
           if constexpr (is_complex) {
             col1[k] = prod_lhs * prod_rhs.conj() + add;
