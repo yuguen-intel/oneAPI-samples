@@ -347,6 +347,7 @@ struct StreamingEigen {
             for (int rq_row = 0; rq_row < 2; rq_row++) {
               T value = 0;
               // PRINTF("value = 0");
+#pragma unroll
               for (int k = 0; k < 3; k++) {
                 T g_prod_col_val =
                     (k + rq_row + 1) > 2 ? T{0} : g_prod_col[k + rq_row + 1];
