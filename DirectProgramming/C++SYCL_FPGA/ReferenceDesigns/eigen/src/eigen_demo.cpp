@@ -216,22 +216,6 @@ int main(int argc, char *argv[]) {
         }  // end of col
       }    // end of row
 
-a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 0] = 3;
-a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 0] = 2;
-a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 0] = 0;
-a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 0] = 0;
-a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 1] = 2;
-a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 1] = 7;
-a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 1] = 8;
-a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 1] = 0;
-a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 2] = 0;
-a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 2] = 8;
-a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 2] = 4;
-a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 2] = 6;
-a_matrix[matrix_index * kAMatrixSize + 0 * kSize + 3] = 0;
-a_matrix[matrix_index * kAMatrixSize + 1 * kSize + 3] = 0;
-a_matrix[matrix_index * kAMatrixSize + 2 * kSize + 3] = 6;
-a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 3] = 6;
 
   // #ifdef DEBUG
       std::cout << "A MATRIX " << matrix_index << std::endl;
@@ -490,130 +474,15 @@ a_matrix[matrix_index * kAMatrixSize + 3 * kSize + 3] = 6;
         }
       }
 
-
-      // for (size_t i = 0; i < kSize; i++) {
-      //   for (size_t j = 0; j < kSize; j++) {
-      //     // Compute Q * R at index i,j
-      //     float q_r_ij{0};
-      //     for (size_t k = 0; k < kSize; k++) {
-      //       q_r_ij += q_matrix_op[i][k] * eigen_values_matrix_op[k][j];
-      //     }
-
-      //     // Compute transpose(Q) * Q at index i,j
-      //     float qt_q_ij{0};
-      //     if (i < kSize) {
-      //       for (size_t k = 0; k < kSize; k++) {
-      //         qt_q_ij += q_matrix_op[k][i] * q_matrix_op[k][j];
-      //       }
-      //     }
-
-      //     // Compute Q * transpose(Q) at index i,j
-      //     float q_qt_ij{0};
-      //     if (i < kSize) {
-      //       for (size_t k = 0; k < kSize; k++) {
-      //         q_qt_ij += q_matrix_op[i][k] * q_matrix_op[j][k];
-      //       }
-      //     }
-
-      //     // Verify that all the results are OK:
-      //     // Q * R = A at index i,j
-      //     bool q_r_eq_a;
-      //     // transpose(Q) * Q = Id at index i,j
-      //     bool qt_q_eq_id;
-      //     // Q * transpose(Q) = Id at index i,j
-      //     bool q_qt_eq_id;
-      //     // R is upped triangular
-      //     bool r_is_upper_triang;
-      //     // R is finite at index i,j
-      //     bool r_is_finite;
-
-      //     q_r_eq_a = abs(a_matrix[matrix_index * kAMatrixSize
-      //                           + j * kSize + i]
-      //                  - q_r_ij) < kErrorThreshold;
-
-      //     qt_q_eq_id =
-      //             ((i == j) && (abs(qt_q_ij - 1) < q_ortho_error_threshold)) ||
-      //             ((i != j) && (abs(qt_q_ij) < q_ortho_error_threshold));
-
-      //     q_qt_eq_id = (((i == j) && (abs(q_qt_ij - 1) < q_ortho_error_threshold)) ||
-      //                   ((i != j) && (abs(q_qt_ij) < q_ortho_error_threshold)));
-
-      //     r_is_upper_triang =
-      //         (i >= kSize) ||
-      //         ((i > j) && ((abs(eigen_values_matrix_op[i][j]) < kErrorThreshold))) ||
-      //         ((i <= j));
-
-
-      //     r_is_finite =
-      //       ((i < kSize) && IsFinite(eigen_values_matrix_op[i][j])) || (i >= kSize);
-
-      //     // If any of the checks failed
-      //     if (!q_r_eq_a || !qt_q_eq_id || !q_qt_eq_id || !r_is_upper_triang ||
-      //         !IsFinite(q_r_ij) || !IsFinite(qt_q_ij) || !IsFinite(q_qt_ij) ||
-      //         !r_is_finite) {
-      //       // Increase the error count for this matrix
-      //       error_count++;
-
-      //       // Continue counting the errors even if we now we are going to
-      //       // produce an error
-      //       if (error) {
-      //         continue;
-      //       }
-
-      //       if (!q_r_eq_a) {
-      //         std::cout << "Error: A[" << i << "][" << j << "] = "
-      //                   << a_matrix[matrix_index * kAMatrixSize
-      //                             + j * kSize + i]
-      //                   << " but QR[" << i << "][" << j << "] = " << q_r_ij
-      //                   << std::endl;
-      //       }
-      //       if (!q_r_eq_a) {
-      //         std::cout << "The difference is greater than tolerated ("
-      //                   << kErrorThreshold << ")" << std::endl;
-      //       }
-      //       if (!qt_q_eq_id || !q_qt_eq_id) {
-      //         std::cout << "Q is not orthogonal at i " << i << " j " << j << ":"
-      //                   << std::endl
-      //                   << " transpose(Q) * Q = " << qt_q_ij << std::endl
-      //                   << " Q * transpose(Q) =" << q_qt_ij << std::endl;
-      //         std::cout << "q_ortho_error_threshold = "
-      //                   << q_ortho_error_threshold
-      //                   << std::endl;
-      //       }
-      //       if (!r_is_upper_triang) {
-      //         std::cout << "R is not upper triangular at i " << i << " j " << j
-      //                   << ":" << std::endl
-      //                   << " R = " << eigen_values_matrix_op[i][j] << std::endl;
-      //       }
-      //       if (!IsFinite(q_r_ij)) {
-      //         std::cout << "QR[" << i << "][" << j << "] = " << q_r_ij
-      //                   << " is not finite" << std::endl;
-      //       }
-      //       if (!IsFinite(qt_q_ij)) {
-      //         std::cout << "transpose(Q) * Q at i " << i << " j " << j << " = "
-      //                   << qt_q_ij << " is not finite" << std::endl;
-      //       }
-      //       if (!IsFinite(q_qt_ij)) {
-      //         std::cout << "Q * transpose(Q) at i " << i << " j " << j << " = "
-      //                   << q_qt_ij << " is not finite" << std::endl;
-      //       }
-      //       if (!r_is_finite) {
-      //         std::cout << "R[" << i << "][" << j << "] = " << eigen_values_matrix_op[i][j]
-      //                   << " is not finite" << std::endl;
-      //       }
-      //       error = true;
-      //     }
-      //   }  // end of j
-      // }    // end of i
+      if (error_count > 0) {
+        std::cout << std::endl << "FAILED" << std::endl;
+        std::cout << std::endl
+                  << "!!!!!!!!!!!!!! " << error_count << " errors" << std::endl;
+        return 1;
+      }
 
     } // end of matrix_index
 
-    if (error_count > 0) {
-      std::cout << std::endl << "FAILED" << std::endl;
-      std::cout << std::endl
-                << "!!!!!!!!!!!!!! " << error_count << " errors" << std::endl;
-      return 1;
-    }
 
     std::cout << std::endl << "PASSED" << std::endl;
     return 0;
