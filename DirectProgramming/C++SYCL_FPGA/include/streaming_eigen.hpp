@@ -162,9 +162,10 @@ struct StreamingEigen {
 
       int rows_to_compute = k_size;
       bool cond = false;
-      while (!cond) {
-      // while (rows_to_compute > 1) {
+      // while (!cond) {
+      while (rows_to_compute > 1) {
         PRINTF("========================================================\n");
+        PRINTF("rows_to_compute %d \n", rows_to_compute);
         T rq[k_size][4];
 
         for (int row = 0; row < k_size; row++) {
@@ -207,7 +208,15 @@ struct StreamingEigen {
           shift_value =
               c - b_squared_signed / (abs(d) + sqrt(d_squared + b_squared));
 
+          // Only taking 90% of the shift value as there is a high probability 
+          // that the shift value matches one of the diagonal elements and 
+          // create a big cancelation
+          // (as the shift value approximated an eigen value, which are the
+          //  values that will end up on the diagonal)
+          shift_value *= 0.9;
+
           // Subtract the shift from the diagonal of RQ
+          // TODO: flag potential cancelations
           for (int row = 0; row < rows_to_compute; row++) {
             a_tri_diag[row][1] -= shift_value;
           }
@@ -224,12 +233,12 @@ struct StreamingEigen {
 
         T last_rq_val = -55;
 
-        for (int row = 0; row < k_size + 1; row++) {
+        for (int row = 0; row < rows_to_compute + 1; row++) {
           // PRINTF("-------------------------------------------------------\n");
 
           T givens[2][2];
 
-          if (row < k_size) {
+          if (row < rows_to_compute) {
             // Take the diagonal element and the one below it
             T x = a_tri_diag[row][1];
             T y = row + 1 > k_size - 1 ? T{0} : a_tri_diag[row + 1][0];
@@ -249,14 +258,6 @@ struct StreamingEigen {
             givens[0][1] = row == (k_size - 1) ? 0 : -s;
             givens[1][0] = row == (k_size - 1) ? 0 : s;
             givens[1][1] = row == (k_size - 1) ? 1 : c;
-
-            // PRINTF("Givens \n");
-            // for (int i = 0; i < 2; i++) {
-            //   for (int j = 0; j < 2; j++) {
-            //     PRINTF("%f ", givens[i][j]);
-            //   }
-            //   PRINTF("\n");
-            // }
 
             /*
               Compute the sub product givens*A
@@ -296,42 +297,8 @@ struct StreamingEigen {
                 }
 
               }  // end of i
-
             }  // end of j
-
           }  // end of if (row < k_size)
-
-          // PRINTF("a_result_rq_buffer\n");
-          // for (int row = 0; row < 3; row++) {
-          //   for (int col = 0; col < 4; col++) {
-          //     PRINTF("%f ", a_result_rq_buffer[row][col]);
-          //   }
-          //   PRINTF("\n");
-          // }
-
-          // PRINTF("Current givens \n");
-          // for (int i = 0; i < 2; i++) {
-          //   for (int j = 0; j < 2; j++) {
-          //     PRINTF("%f ", givens[i][j]);
-          //   }
-          //   PRINTF("\n");
-          // }
-
-          // PRINTF("Givens m1\n");
-          // for (int i = 0; i < 2; i++) {
-          //   for (int j = 0; j < 2; j++) {
-          //     PRINTF("%f ", givens_it_minus_1[i][j]);
-          //   }
-          //   PRINTF("\n");
-          // }
-
-          // PRINTF("Givens m2\n");
-          // for (int i = 0; i < 2; i++) {
-          //   for (int j = 0; j < 2; j++) {
-          //     PRINTF("%f ", givens_it_minus_2[i][j]);
-          //   }
-          //   PRINTF("\n");
-          // }
 
           if (row > 0) {
             int rq_col = row - 1;
@@ -384,23 +351,6 @@ struct StreamingEigen {
             last_rq_val = last_dp_val;
           }
 
-
-          // PRINTF("a_tri_diag at row=%d\n", row);
-          // for (int row = 0; row < k_size; row++) {
-          //   for (int col = 0; col < 4; col++) {
-          //     PRINTF("%f ", a_tri_diag[row][col]);
-          //   }
-          //   PRINTF("\n");
-          // }
-
-          // PRINTF("rq at row=%d\n", row);
-          // for (int row = 0; row < k_size; row++) {
-          //   for (int col = 0; col < 4; col++) {
-          //     PRINTF("%f ", rq[row][col]);
-          //   }
-          //   PRINTF("\n");
-          // }
-
           for (int row = 0; row < 2; row++) {
             for (int col = 0; col < 4; col++) {
               a_result_rq_buffer[row][col] = a_result_rq_buffer[row + 1][col];
@@ -421,11 +371,8 @@ struct StreamingEigen {
 
         }  // end of row
 
-        // exit(0);
-
-
         // Copy RQ in A
-        for (int row = 0; row < k_size; row++) {
+        for (int row = 0; row < rows_to_compute; row++) {
           for (int col = 0; col < 4; col++) {
             bool is_first_elem = (row == 0) && (col == 0); 
             bool is_last_elem = (row == k_size-1) && (col == 2); 
@@ -462,11 +409,11 @@ struct StreamingEigen {
         }
         // check if condition is reached
         float constexpr threshold = 1e-3;
-        // if (sycl::fabs(rq[rows_to_compute - 1][0]) < threshold) {
-        //   PRINTF("Adding eigen value: %f <----------------------\n", a_tri_diag[rows_to_compute - 1][1]);
-        //   eigen_values[rows_to_compute-1] = a_tri_diag[rows_to_compute - 1][1];
-        //   rows_to_compute--;
-        // }
+        if (sycl::fabs(rq[rows_to_compute - 1][0]) < threshold) {
+          PRINTF("Adding eigen value: %f <----------------------\n", a_tri_diag[rows_to_compute - 1][1]);
+          // eigen_values[rows_to_compute-1] = a_tri_diag[rows_to_compute - 1][1];
+          rows_to_compute--;
+        }
 
         // if(rows_to_compute==1){
         //   PRINTF("a_tri_diag 0 0 %f\n", sycl::fabs(a_tri_diag[0][0]));
@@ -475,16 +422,16 @@ struct StreamingEigen {
         //   }
         // }
 
-        bool reached = true;
-        // // //
-        // // PRINTF("===============================================================");
-        // // PRINTF("checking... ");
-        for (int row = 1; row < k_size; row++) {
-          // PRINTF("%f ", fabs(rq[row][0]));
-          reached &= sycl::fabs(rq[row][0]) < threshold;
-        }
-        // PRINTF("\n");
-        cond = reached;
+        // bool reached = true;
+        // // // //
+        // // // PRINTF("===============================================================");
+        // // // PRINTF("checking... ");
+        // for (int row = 1; row < k_size; row++) {
+        //   // PRINTF("%f ", fabs(rq[row][0]));
+        //   reached &= sycl::fabs(rq[row][0]) < threshold;
+        // }
+        // // PRINTF("\n");
+        // cond = reached;
         // cond = iteration==0;
         iterations++;
         // if(iterations==2){
