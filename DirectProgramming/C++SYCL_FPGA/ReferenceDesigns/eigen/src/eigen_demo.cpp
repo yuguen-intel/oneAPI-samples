@@ -159,7 +159,8 @@ int main(int argc, char *argv[]) {
 #elif FPGA_HARDWARE
     auto selector = sycl::ext::intel::fpga_selector_v;
 #else  // #if FPGA_EMULATOR
-    auto selector = sycl::ext::intel::fpga_emulator_selector_v;
+    sycl::ext::intel::fpga_emulator_selector selector;
+    // auto selector = sycl::ext::intel::fpga_emulator_selector_v;
 #endif
 
     // Enable the queue profiling to time the execution

@@ -150,18 +150,19 @@ struct StreamingEigen {
         });
       }
 
-      // PRINTF("a_tri_diag\n");
-      // for(int row=0; row<k_size; row++){
-      //   for(int col=0; col<4; col++){
-      //     PRINTF("%f ", a_tri_diag[row][col]);
-      //   }
-      //   PRINTF("\n");
-      // }
+      PRINTF("a_tri_diag\n");
+      for(int row=0; row<k_size; row++){
+        for(int col=0; col<4; col++){
+          PRINTF("%f ", a_tri_diag[row][col]);
+        }
+        PRINTF("\n");
+      }
 
-      constexpr bool kShift = false;
+      constexpr bool kShift = true;
 
       int rows_to_compute = k_size;
-      while (rows_to_compute > 1) {
+      bool cond = false;
+      while (!cond) {
       // while (rows_to_compute > 1) {
         PRINTF("========================================================\n");
         T rq[k_size][4];
@@ -211,14 +212,15 @@ struct StreamingEigen {
             a_tri_diag[row][1] -= shift_value;
           }
         }
+        PRINTF("shift_value %f\n", shift_value);
 
-        // PRINTF("a_tri_diag before QR\n");
-        // for (int row = 0; row < k_size; row++) {
-        //   for (int col = 0; col < 4; col++) {
-        //     PRINTF("%f ", a_tri_diag[row][col]);
-        //   }
-        //   PRINTF("\n");
-        // }
+        PRINTF("a_tri_diag before QR\n");
+        for (int row = 0; row < k_size; row++) {
+          for (int col = 0; col < 4; col++) {
+            PRINTF("%f ", a_tri_diag[row][col]);
+          }
+          PRINTF("\n");
+        }
 
         T last_rq_val = -55;
 
@@ -436,13 +438,13 @@ struct StreamingEigen {
           }
         }
 
-        // PRINTF("rq \n");
-        // for(int row=0; row<k_size; row++){
-        //   for(int col=0; col<4; col++){
-        //     PRINTF("%f ", rq[row][col]);
-        //   }
-        //   PRINTF("\n");
-        // }
+        PRINTF("rq \n");
+        for(int row=0; row<k_size; row++){
+          for(int col=0; col<4; col++){
+            PRINTF("%f ", rq[row][col]);
+          }
+          PRINTF("\n");
+        }
 
         if constexpr (kShift) {
           // Add the shift back to the diagonal of RQ
@@ -451,18 +453,20 @@ struct StreamingEigen {
           }
         }
 
-        // PRINTF("a_tri_diag (rq+shift %f)\n", shift_value);
-        // for(int row=0; row<k_size; row++){
-        //   for(int col=0; col<4; col++){
-        //     PRINTF("%f ", a_tri_diag[row][col]);
-        //   }
-        //   PRINTF("\n");
-        // }
+        PRINTF("a_tri_diag (rq+shift %f)\n", shift_value);
+        for(int row=0; row<k_size; row++){
+          for(int col=0; col<4; col++){
+            PRINTF("%f ", a_tri_diag[row][col]);
+          }
+          PRINTF("\n");
+        }
         // check if condition is reached
         float constexpr threshold = 1e-3;
-        if (sycl::fabs(rq[rows_to_compute - 1][0]) < threshold) {
-          rows_to_compute--;
-        }
+        // if (sycl::fabs(rq[rows_to_compute - 1][0]) < threshold) {
+        //   PRINTF("Adding eigen value: %f <----------------------\n", a_tri_diag[rows_to_compute - 1][1]);
+        //   eigen_values[rows_to_compute-1] = a_tri_diag[rows_to_compute - 1][1];
+        //   rows_to_compute--;
+        // }
 
         // if(rows_to_compute==1){
         //   PRINTF("a_tri_diag 0 0 %f\n", sycl::fabs(a_tri_diag[0][0]));
@@ -471,16 +475,16 @@ struct StreamingEigen {
         //   }
         // }
 
-        // bool reached = true;
+        bool reached = true;
         // // //
         // // PRINTF("===============================================================");
-        // // // PRINTF("checking... ");
-        // for (int row = 1; row < k_size; row++) {
-        //   // PRINTF("%f ", fabs(rq[row][0]));
-        //   reached &= sycl::fabs(rq[row][0]) < threshold;
-        // }
-        // // PRINTF("\n");
-        // cond = reached;
+        // // PRINTF("checking... ");
+        for (int row = 1; row < k_size; row++) {
+          // PRINTF("%f ", fabs(rq[row][0]));
+          reached &= sycl::fabs(rq[row][0]) < threshold;
+        }
+        // PRINTF("\n");
+        cond = reached;
         // cond = iteration==0;
         iterations++;
         // if(iterations==2){
@@ -497,10 +501,8 @@ struct StreamingEigen {
 
       matrices_computed++;
 
-      if (matrices_computed == 1024) {
-        PRINTF("Average number of iterations: %d\n",
-               iterations / matrices_computed);
-      }
+      PRINTF("Average number of iterations: %d\n",
+             iterations / matrices_computed);
 
       // PRINTF("a_tri_diag\n");
       // for (int row = 0; row < k_size; row++) {
