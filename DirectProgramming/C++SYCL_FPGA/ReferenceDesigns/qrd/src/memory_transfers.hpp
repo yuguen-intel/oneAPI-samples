@@ -151,8 +151,7 @@ void MatrixReadPipeToDDR(
 #endif  
 
   // Repeatedly read matrix_count matrices from the pipe and write them to DDR
-  for (int repetition = 0; repetition < repetitions * matrix_count; repetition++){
-    
+  for (int repetition = 0; repetition < repetitions; repetition++){
     for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++){
       // Keep track of the current element index in the output matrix
       // Only useful in the case of kIncompleteBurst
