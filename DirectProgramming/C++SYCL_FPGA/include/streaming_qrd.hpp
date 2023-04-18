@@ -245,7 +245,7 @@ struct StreamingQRD {
         });
       }
 
-      // // Compute the QR Decomposition
+      // Compute the QR Decomposition
 
       // r_result write index
       int r_element_index = 0;
@@ -344,14 +344,6 @@ struct StreamingQRD {
                                           TT{0.0} : s_or_ir_j.template get<k>();
           auto add = j_eq_i.template get<k>() ? TT{0.0} : col;
 
-/*
-          // Adding pipeline stage before the multadd to help routing larger
-          // designs
-          prod_lhs = sycl::ext::intel::fpga_reg(prod_lhs);
-          prod_rhs = sycl::ext::intel::fpga_reg(prod_rhs);
-          add = sycl::ext::intel::fpga_reg(add);
-*/
-
           if constexpr (is_complex) {
             col1[k] = prod_lhs * prod_rhs.conj() + add;
           } else {
@@ -444,11 +436,11 @@ struct StreamingQRD {
 
         // Compute the R_{i+1,i+1} or R_{i+1,j}
         TT r_ip1j;
-        if(j == i+1){
-          r_ip1j = sycl::sqrt(pip1);
-        }
-        else{
-          r_ip1j = ir * p_ij;
+        if constexpr (is_complex) {
+          r_ip1j = j == i + 1 ? TT{sycl::sqrt(pip1), 0.0}
+                              : TT{ir * p_ij.r(), ir * p_ij.i()};
+        } else {
+          r_ip1j = j == i + 1 ? sycl::sqrt(pip1) : ir * p_ij;
         }
 
         // Write the computed R value when j is not a "dummy" iteration

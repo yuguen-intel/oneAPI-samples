@@ -1,15 +1,6 @@
 #ifndef __MEMORY_TRANSFERS_HPP__
 #define __MEMORY_TRANSFERS_HPP__
 
-#ifdef __SYCL_DEVICE_ONLY__
-  #define CL_CONSTANT __attribute__((opencl_constant))
-#else
-  #define CL_CONSTANT
-#endif
-#define PRINTF(format, ...) { \
-            static const CL_CONSTANT char _format[] = format; \
-            sycl::ext::oneapi::experimental::printf(_format, ## __VA_ARGS__); }
-
 #include "tuple.hpp"
 #include "constexpr_math.hpp"
 #include "unrolled_loop.hpp"
@@ -143,14 +134,9 @@ void MatrixReadPipeToDDR(
   // Number of DDR burst of num_elem_per_bank to write all the matrices
   constexpr int kLoopIter = kLoopIterPerColumn * columns;
   // Size in bits of the loop iterator over kLoopIter iterations
-  // constexpr int kLoopIterBitSize = fpga_tools::BitsForMaxValue<kLoopIter + 1>();
+  constexpr int kLoopIterBitSize = fpga_tools::BitsForMaxValue<kLoopIter + 1>();
   // Size of a full matrix
   constexpr int kMatrixSize = rows * columns;
-
-    // PRINTF( "kLoopIterPerColumn: %d\n", kLoopIterPerColumn);
-    // PRINTF( "kLoopIter: %d\n", kLoopIter);
-    // PRINTF( "kLoopIterBitSize: %d\n", kLoopIterBitSize);
-    // PRINTF( "kMatrixSize: %d\n", kMatrixSize);
 
 #if defined (IS_BSP)
   // When targeting a BSP, we instruct the compiler that this pointer
@@ -164,13 +150,12 @@ void MatrixReadPipeToDDR(
   TT* matrix_ptr_located(matrix_ptr);
 #endif  
 
-  int matrix_index = 0;
   // Repeatedly read matrix_count matrices from the pipe and write them to DDR
   for (int repetition = 0; repetition < repetitions * matrix_count; repetition++){
-    // for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++){
+    for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++){
       // Keep track of the current element index in the output matrix
       // Only useful in the case of kIncompleteBurst
-      // int write_idx = 0;
+      int write_idx = 0;
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep]]  // NO-FORMAT: Attribute
@@ -178,49 +163,43 @@ void MatrixReadPipeToDDR(
         fpga_tools::NTuple<TT, num_elem_per_bank> pipe_read =
                                                             MatrixPipe::read();
 
-        // bool last_burst_of_col;
-        // if constexpr (kIncompleteBurst){
-        //   // Check if we are writing the last DDR burst of the current column
-        //   last_burst_of_col =
-        //                     (li % kLoopIterPerColumn) == kLoopIterPerColumn - 1;
-        // }
+        bool last_burst_of_col;
+        if constexpr (kIncompleteBurst){
+          // Check if we are writing the last DDR burst of the current column
+          last_burst_of_col =
+                            (li % kLoopIterPerColumn) == kLoopIterPerColumn - 1;
+        }
 
         fpga_tools::UnrolledLoop<num_elem_per_bank>([&](auto k) {
-          // if constexpr (kIncompleteBurst){
-          //   // Check if the current write index is beyond the end of the current
-          //   // matrix column
-          //   bool out_of_bounds = last_burst_of_col &&
-          //                         (k > ((rows - 1) % num_elem_per_bank));
+          if constexpr (kIncompleteBurst){
+            // Check if the current write index is beyond the end of the current
+            // matrix column
+            bool out_of_bounds = last_burst_of_col &&
+                                  (k > ((rows - 1) % num_elem_per_bank));
 
-          //   // Only perform the DDR writes that are relevant (and don't access a
-          //   // memory address that may be beyond the buffer last address)
-          //   if (!out_of_bounds) {
-          //     matrix_ptr_located[matrix_index * kMatrixSize + write_idx + k] =
-          //                                           pipe_read.template get<k>();
-          //   }
-          // }
-          // else{
+            // Only perform the DDR writes that are relevant (and don't access a
+            // memory address that may be beyond the buffer last address)
+            if (!out_of_bounds) {
+              matrix_ptr_located[matrix_index * kMatrixSize + write_idx + k] =
+                                                    pipe_read.template get<k>();
+            }
+          }
+          else{
             matrix_ptr_located[matrix_index * kMatrixSize
               + li * num_elem_per_bank + k] = pipe_read.template get<k>();
-          // }
+          }
 
         });
 
-        // if constexpr (kIncompleteBurst){
-        //   // Update the current element index in the write buffer according
-        //   // to the write size of the current iteration
-        //   write_idx += last_burst_of_col ? rows % num_elem_per_bank :
-        //                                    num_elem_per_bank;
-        // }
+        if constexpr (kIncompleteBurst){
+          // Update the current element index in the write buffer according
+          // to the write size of the current iteration
+          write_idx += last_burst_of_col ? rows % num_elem_per_bank :
+                                           num_elem_per_bank;
+        }
       }  // end of li
 
-      if (matrix_index == (matrix_count -1)){
-        matrix_index = 0;
-      }
-      else {
-        matrix_index++;
-      }
-    // } // end of matrix_index
+    } // end of matrix_index
   } // end of repetition
 }
 
