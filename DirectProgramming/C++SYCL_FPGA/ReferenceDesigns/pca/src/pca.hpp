@@ -75,7 +75,7 @@ void PCAKernel(
 
   // Pipes to communicate the A, Q and R matrices between kernels
   using InputMatrixPipe = sycl::ext::intel::pipe<IMP, PipeType, 3>;
-  using CovarianceMatrixPipe = sycl::ext::intel::pipe<CMP, PipeType, 3>;
+  // using CovarianceMatrixPipe = sycl::ext::intel::pipe<CMP, PipeType, 3>;
   using EigenValuesPipe = sycl::ext::intel::pipe<EValP, T, 3>;
   using EigenVectorsPipe = sycl::ext::intel::pipe<EVecP, PipeType, 3>;
   using RankDeficientFlagPipe =
@@ -150,23 +150,23 @@ void PCAKernel(
   auto ddr_write_event = q.submit([&](sycl::handler &h) {
     h.single_task<InputMatrixFromDDRToLocalMem>([=
     ]() [[intel::kernel_args_restrict]] {
-      MatrixReadFromDDRToPipeByBlocks<T, k_features_count, k_samples_count,
+      MatrixReadFromDDRToPipeByBlocks<T, k_features_count, k_features_count,
                                       kNumElementsPerDDRBurst, InputMatrixPipe>(
           input_matrix_device, matrix_count, repetitions);
     });
   });
 
-  // Compute the covariance matrix
-  q.single_task<CovarianceMatrixComputation>(
-      fpga_linalg::StreamingCovarianceMatrix<
-          T, k_samples_count, k_features_count, kNumElementsPerDDRBurst,
-          InputMatrixPipe, CovarianceMatrixPipe>());
+  // // Compute the covariance matrix
+  // q.single_task<CovarianceMatrixComputation>(
+  //     fpga_linalg::StreamingCovarianceMatrix<
+  //         T, k_samples_count, k_features_count, kNumElementsPerDDRBurst,
+  //         InputMatrixPipe, CovarianceMatrixPipe>());
 
   // Compute the Eigen values and Eigen vectors
   q.single_task<EigenValuesAndVectorsComputation>(
       fpga_linalg::StreamingEigen<T, k_features_count, k_raw_latency,
                                   kNumElementsPerDDRBurst, k_zero_threshold_1e,
-                                  CovarianceMatrixPipe, EigenValuesPipe,
+                                  InputMatrixPipe, EigenValuesPipe,
                                   EigenVectorsPipe, RankDeficientFlagPipe>());
 
   // Write the Eigen values from local memory to FPGA DDR
