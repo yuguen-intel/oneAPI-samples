@@ -571,13 +571,13 @@ struct StreamingEigen {
 
         shift_value *= 0.99;
 
-        // PRINTF("RQ at iteration %d\n", iteration_count);
-        // for (int row=0; row<size; row++){
-        //   for (int column=0; column<size; column++){
-        //     PRINTF("%f ", rq_matrix[row][column]);
-        //   }
-        //   PRINTF("\n");
-        // }
+        PRINTF("RQ at iteration %d\n", iteration_count);
+        for (int row=0; row<size; row++){
+          for (int column=0; column<size; column++){
+            PRINTF("%f ", rq_matrix[row][column]);
+          }
+          PRINTF("\n");
+        }
 
         if (row_is_zero) {
           shift_row--;
@@ -590,6 +590,10 @@ struct StreamingEigen {
         }
 
         iteration_count++;
+
+        if(iteration_count > 64){
+          break;
+        }
 
       }  // end if while(continue_iterating)
 

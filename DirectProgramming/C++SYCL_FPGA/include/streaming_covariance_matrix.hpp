@@ -227,13 +227,13 @@ struct StreamingCovarianceMatrix {
       }    // end for:row
 
 
-      // PRINTF("COV MATRIX\n");
-      // for (int row = 0; row < columns; row++) {
-      //   for (int column = 0; column < columns; column++) {
-      //     PRINTF("%f ", cov_matrix[row][column]);
-      //   }  // end for:column
-      //     PRINTF("\n");
-      // }    // end for:row
+      PRINTF("COV MATRIX\n");
+      for (int row = 0; row < columns; row++) {
+        for (int column = 0; column < columns; column++) {
+          PRINTF("%f ", cov_matrix[row][column]);
+        }  // end for:column
+          PRINTF("\n");
+      }    // end for:row
 
 
       // Write the standardized covariance matrix to the output pipe
