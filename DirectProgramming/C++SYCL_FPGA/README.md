@@ -95,6 +95,7 @@ flowchart LR
 | [pipes](Tutorials/Features/pipes)                                                                                             | [Tutorials/Features](Tutorials/Features)             | The basics of using SYCL*-compliant pipes extension for FPGA <br> How to declare and use pipes
 | [printf](Tutorials/Features/printf)                                                                                           | [Tutorials/DesignPatterns](Tutorials/DesignPatterns) | How to declare and use `printf` in program
 | [register_map_and_streaming_interfaces (experimental)](Tutorials/Features/experimental/register_map_and_streaming_interfaces) | [Tutorials/Features](Tutorials/Features)             | How to specify the kernel invocation interface and kernel argument interfaces
+| [pipelined_kernels (experimental)](Tutorials/Features/experimental/pipelined_kernels)                                         | [Tutorials/Features](Tutorials/Features)             | Basics of declaring and launching a pipelined kernel
 
 
 #### Tier 3: Explore the Advanced Techniques
@@ -173,8 +174,10 @@ All the Tier 4 samples are in the [ReferenceDesigns](ReferenceDesigns) category.
 | [db](ReferenceDesigns/db)                                 | How to accelerate database queries using an FPGA
 | [decompress](ReferenceDesigns/decompress)                 | How to implement an efficient GZIP and Snappy decompression engine on a FPGA
 | [gzip](ReferenceDesigns/gzip)                             | How to implement a high-performance multi-engine compression algorithm on FPGA
+| [matmul](ReferenceDesigns/matmul)                         | How to implement a systolic-array-based high-performance matrix multiplication algorithm on FPGA
 | [merge_sort](ReferenceDesigns/merge_sort)                 | How to use the spatial compute of the FPGA to create a merge sort design that takes advantage of thread- and SIMD-level parallelism
 | [mvdr_beamforming](ReferenceDesigns/mvdr_beamforming)     | How to create a full, complex system that performs IO streaming using SYCL*-compliant code
+| [pca](ReferenceDesigns/pca)                               | How to implement high performance principal component analysis on a FPGA
 | [qrd](ReferenceDesigns/qrd)                               | Implementing a high performance FPGA version of the Gram-Schmidt QR decomposition algorithm
 | [qri](ReferenceDesigns/qri)                               | Implementing a high performance FPGA version of the Gram-Schmidt QR decomposition to compute a matrix inversion
 
