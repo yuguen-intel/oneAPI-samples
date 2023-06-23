@@ -104,8 +104,14 @@ using SupplierPartSupplierJoinedPipeData =
 // pipes
 using ProducePartSupplierPipe =
   pipe<class ProducePartSupplierPipeClass, PartSupplierRowPipeData>;
+
+using ProducePartSupplierPipeSpy1 =
+  pipe<class ProducePartSupplierPipeClassSpy1, PartSupplierRowPipeData>;
   
 using PartSupplierPartsPipe =
   pipe<class PartSupplierPartsPipeClass, SupplierPartSupplierJoinedPipeData>;
+
+using PartSupplierPartsPipeSpy2 =
+  pipe<class PartSupplierPartsPipeClassSpy2, SupplierPartSupplierJoinedPipeData>;
 
 #endif /* __PIPE_TYPES_H__ */

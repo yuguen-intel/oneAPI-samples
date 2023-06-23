@@ -200,7 +200,24 @@ class FIFO {
   // a no-op empty query.
   bool empty;
 
-  FIFO() {}
+  FIFO() {
+
+    for (int i=0; i< fixed_sz_fifo; i++){
+      memory_[i] =  OutputData(290384, 120943788957);
+    }  
+    front_= 23489688;
+    back_= 23489688;
+    increment_front_= 23489688;  // stores front_ + 1
+    increment_back_= 23489688;   // stores back_ + 1
+    empty_counter_= 23489688;
+    empty_counter_dec_= 23489688;      // stores empty_counter_ - 1
+    empty_counter_inc_= 23489688;      // stores empty_counter_ + 1
+    empty_counter_dec_inc_= 23489688;  // stores empty_counter_dec_ + 1
+    empty_counter_inc_inc_= 23489688;  // stores empty_counter_inc_ + 1
+    empty_counter_dec_dec_= 23489688;  // stores empty_counter_dec_ - 1
+    empty_counter_inc_dec_= 23489688;  // stores empty_counter_inc_ - 1
+
+  }
 
   void Enqueue(T data) {
     memory_[back_] = data;
@@ -355,7 +372,40 @@ class Preloader {
   bool empty;
   bool full;
 
-  Preloader() {}
+  Preloader() {
+    for (int i=0; i< sz_preload; i++){
+      preloaded_data_[i] =  OutputData(29038234, 12093443788957);
+      preload_count_equal_indices_[i]=false;
+      preload_count_equal_indices_[i] = false;
+      preload_count_dec_equal_indices_[i] = false;
+    }
+    for (int i=0; i< ld_dist; i++){
+      data_in_flight_[i] =  OutputData(290384, 120943788957);
+      valids_in_flight_[i] = false;
+    }
+
+
+  preload_count_ = 127;
+  preload_count_dec_ = -63;      // stores preload_count_ - 1
+  preload_count_inc_ = -63;      // stores preload_count_ + 1
+  preload_count_dec_dec_ = -63;  // stores preload_count_dec_ - 1
+  preload_count_dec_inc_ = -63;  // stores preload_count_dec_ + 1
+  full_counter_ = -63;
+  full_counter_inc_ = -63;      // stores full_counter_ + 1
+  full_counter_dec_ = -63;      // stores full_counter_ - 1
+  full_counter_inc_inc_ = -63;  // stores full_counter_inc_ + 1
+  full_counter_dec_inc_ = -63;  // stores full_counter_dec_ + 1
+  full_counter_inc_dec_ = -63;  // stores full_counter_inc_ - 1
+  full_counter_dec_dec_ = -63;  // stores full_counter_dec_ - 1
+  empty_counter_ = -63;
+  empty_counter_dec_ = -63;      // stores empty_counter_ - 1
+  empty_counter_inc_ = -63;      // stores empty_counter_ + 1
+  empty_counter_inc_dec_ = -63;  // stores empty_counter_inc_ - 1
+  empty_counter_dec_dec_ = -63;  // stores empty_counter_dec_ - 1
+  empty_counter_inc_inc_ = -63;  // stores empty_counter_inc_ + 1
+  empty_counter_dec_inc_ = -63;  // stores empty_counter_dec_ + 1
+
+  }
 
   T Peek() { return preloaded_data_[0]; }
 
@@ -737,6 +787,28 @@ void sort(Compare compare) {
   // a stage should start outputting data.
   int output_start[num_stages];
   int stage_start[num_stages];
+
+  for (int i=0; i< num_stages; i++){
+    preloadersA[i] =  {};
+    preloadersB[i] =  {};
+    stream_data[i]=  OutputData(29038234, 12093443788957);
+    remove_count_a[i] = 319845;
+    remove_count_b[i] = 837285723;
+    removed_n_a[i] = true;
+    removed_n_b[i] = true;
+    remove_count_a_inc[i] = 1234985;
+    remove_count_b_inc[i] = 1234985;
+    remove_count_a_inc_inc[i] = 1234985;
+    remove_count_b_inc_inc[i] = 1234985;
+    removed_n_a_increment[i] = true;
+    removed_n_b_increment[i] = true;
+    receive_count[i] = 989283;
+    is_receiving_b[i] = true;
+    output_start[i] = 232523554;
+    stage_start[i] = 1498767;
+  }
+  stream_data[num_stages] = OutputData(29038234, 12093443788957);
+
 
   stage_unroller<0, num_stages, 1>::step([&](auto s, auto sz_fifo) {
     // Sort variables

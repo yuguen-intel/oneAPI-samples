@@ -40,7 +40,9 @@ struct GreaterThan {
 
 // input and output pipes for the sorter
 using SortInPipe = pipe<class SortInputPipe, SortType>;
+using SortInPipeSpy3 = pipe<class SortInputPipeSpy3, SortType>;
 using SortOutPipe = pipe<class SortOutputPipe, SortType>;
+using SortOutPipeSpy4 = pipe<class SortOutputPipeSpy4, SortType>;
 ///////////////////////////////////////////////////////////////////////////////
 
 bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
@@ -68,6 +70,25 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
   // setup the output buffers
   buffer partkeys_buf(partkeys);
   buffer values_buf(values);
+
+
+  constexpr int kSpy1BufferSize = 800000;
+  PartSupplierRowPipeData * spy_1_data = sycl::malloc_device<PartSupplierRowPipeData>(kSpy1BufferSize, q);
+  int * spy_1_count = sycl::malloc_device<int>(1, q);
+
+  constexpr int kSpy2BufferSize = 800000;
+  SupplierPartSupplierJoinedPipeData * spy_2_data = sycl::malloc_device<SupplierPartSupplierJoinedPipeData>(kSpy2BufferSize, q);
+  int * spy_2_count = sycl::malloc_device<int>(1, q);
+
+  constexpr int kSpy3BufferSize = 800000;
+  SortType * spy_3_data = sycl::malloc_device<SortType>(kSpy3BufferSize, q);
+  int * spy_3_count = sycl::malloc_device<int>(1, q);
+
+  constexpr int kSpy4BufferSize = 800000;
+  SortType * spy_4_data = sycl::malloc_device<SortType>(kSpy4BufferSize, q);
+  int * spy_4_count = sycl::malloc_device<int>(1, q);
+
+
 
   // number of producing iterations depends on the number of elements per cycle
   const size_t ps_rows = dbinfo.ps.rows;
@@ -116,6 +137,20 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
   });
   ///////////////////////////////////////////////////////////////////////////
 
+  // Spy kernel 
+  q.submit([&](handler& h) {
+    h.single_task<class Spy1>([=]() [[intel::kernel_args_restrict]] {
+      int idx = 0;
+      while(1){
+        auto read = ProducePartSupplierPipe::read();
+        spy_1_data[idx] = read;
+        idx++;
+        spy_1_count[0] = idx;
+        ProducePartSupplierPipeSpy1::write(read);
+      }
+    });
+  });
+
   ///////////////////////////////////////////////////////////////////////////
   //// JoinPartSupplierParts Kernel
   auto join_event = q.submit([&](handler& h) {
@@ -146,7 +181,7 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
       }
 
       // MAPJOIN PARTSUPPLIER and SUPPLIER tables by suppkey
-      MapJoin<unsigned char, ProducePartSupplierPipe, PartSupplierRow,
+      MapJoin<unsigned char, ProducePartSupplierPipeSpy1, PartSupplierRow,
               kJoinWinSize, PartSupplierPartsPipe,
               SupplierPartSupplierJoined>(nation_key_map_data,
                                           nation_key_map_valid);
@@ -157,6 +192,22 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
     });
   });
   ///////////////////////////////////////////////////////////////////////////
+
+
+  // Spy kernel 
+  q.submit([&](handler& h) {
+    h.single_task<class Spy2>([=]() [[intel::kernel_args_restrict]] {
+      int idx = 0;
+      while(1){
+        auto read = PartSupplierPartsPipe::read();
+        spy_2_data[idx] = read;
+        idx++;
+        spy_2_count[0] = idx;
+        PartSupplierPartsPipeSpy2::write(read);
+      }
+    });
+  });
+
 
   ///////////////////////////////////////////////////////////////////////////
   //// Compute Kernel
@@ -174,7 +225,7 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
     while (!done) {
       bool valid_pipe_read;
       SupplierPartSupplierJoinedPipeData pipe_data = 
-          PartSupplierPartsPipe::read(valid_pipe_read);
+          PartSupplierPartsPipeSpy2::read(valid_pipe_read);
 
       done = pipe_data.done && valid_pipe_read;
 
@@ -206,6 +257,22 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
   });
   ///////////////////////////////////////////////////////////////////////////
 
+  // Spy kernel 
+  q.submit([&](handler& h) {
+    h.single_task<class Spy3>([=]() [[intel::kernel_args_restrict]] {
+      int idx = 0;
+      while(1){
+        auto read = SortInPipe::read();
+        spy_3_data[idx] = read;
+        idx++;
+        spy_3_count[0] = idx;
+        SortInPipeSpy3::write(read);
+      }
+    });
+  });
+
+
+
   ///////////////////////////////////////////////////////////////////////////
   //// ConsumeSort kernel
   auto consume_sort_event = q.submit([&](handler& h) {
@@ -224,7 +291,7 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
       [[intel::initiation_interval(1)]]
       while (i_in_range) {
         bool pipe_read_valid;
-        OutputData D = SortOutPipe::read(pipe_read_valid);
+        OutputData D = SortOutPipeSpy4::read(pipe_read_valid);
 
         if (pipe_read_valid) {
           if (i_in_parttable_range) {
@@ -246,9 +313,24 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
   ///////////////////////////////////////////////////////////////////////////
   //// FifoSort Kernel
   auto sort_event = q.single_task<FifoSort>([=] {
-    ihc::sort<SortType, kSortSize, SortInPipe, SortOutPipe>(GreaterThan());
+    ihc::sort<SortType, kSortSize, SortInPipeSpy3, SortOutPipe>(GreaterThan());
   });
   ///////////////////////////////////////////////////////////////////////////
+
+
+  // Spy kernel 
+  q.submit([&](handler& h) {
+    h.single_task<class Spy4>([=]() [[intel::kernel_args_restrict]] {
+      int idx = 0;
+      while(1){
+        auto read = SortOutPipe::read();
+        spy_4_data[idx] = read;
+        idx++;
+        spy_4_count[0] = idx;
+        SortOutPipeSpy4::write(read);
+      }
+    });
+  });
 
   // wait for kernels to finish
   produce_ps_event.wait();
@@ -260,6 +342,131 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
   high_resolution_clock::time_point host_end = high_resolution_clock::now();
   duration<double, std::milli> diff = host_end - host_start;
 
+
+
+  PartSupplierRowPipeData spy_1_data_host[kSpy1BufferSize];
+  int spy_1_data_count_host;
+  q.memcpy(spy_1_data_host, spy_1_data, kSpy1BufferSize * sizeof(PartSupplierRowPipeData)).wait();
+  q.memcpy(&spy_1_data_count_host, spy_1_count, sizeof(int)).wait();
+
+
+  std::ofstream myfile_spy_1;
+  myfile_spy_1.open ("spy_1.txt");
+
+  for (int i =0; i<spy_1_data_count_host; i++){
+    auto current_data = spy_1_data_host[i];
+    PartSupplierRow current_row = current_data.data.template get<0>();
+
+    std::string valid_str = current_row.valid ? "true" : "false";
+    unsigned int partkey = current_row.partkey;
+    unsigned int suppkey = current_row.suppkey;
+    int availqty = current_row.availqty;
+    long long supplycost = current_row.supplycost;
+    myfile_spy_1 << i << "/" << (spy_1_data_count_host-1) << std::endl;
+    myfile_spy_1 << valid_str << " "
+              << partkey << " "
+              << suppkey << " "
+              << availqty << " "
+              << supplycost << " "
+              << std::endl;
+
+  }
+  myfile_spy_1.close();
+
+
+  std::cout << "wrote to spy_1.txt" << std::endl;
+
+  SupplierPartSupplierJoinedPipeData spy_2_data_host[kSpy1BufferSize];
+  int spy_2_data_count_host;
+  q.memcpy(spy_2_data_host, spy_2_data, kSpy1BufferSize * sizeof(SupplierPartSupplierJoinedPipeData)).wait();
+  q.memcpy(&spy_2_data_count_host, spy_2_count, sizeof(int)).wait();
+
+
+  std::ofstream myfile_spy_2;
+  myfile_spy_2.open ("spy_2.txt");
+
+  for (int i =0; i<spy_2_data_count_host; i++){
+    auto current_data = spy_2_data_host[i];
+    SupplierPartSupplierJoined current = current_data.data.template get<0>();
+
+    std::string valid_str = current.valid ? "true" : "false";
+    unsigned int partkey = current.partkey;
+    int availqty = current.availqty;
+    long long supplycost = current.supplycost;
+    std::string nationkey = std::to_string(current.nationkey);
+    myfile_spy_2 << i << "/" << (spy_2_data_count_host-1) << std::endl;
+    myfile_spy_2 << valid_str << " "
+              << partkey << " "
+              << availqty << " "
+              << supplycost << " "
+              << nationkey << " "
+              << std::endl;
+
+  }
+  myfile_spy_2.close();
+
+  std::cout << "wrote to spy_2.txt" << std::endl;
+
+
+  SortType spy_3_data_host[kSpy1BufferSize];
+  int spy_3_data_count_host;
+  q.memcpy(spy_3_data_host, spy_3_data, kSpy1BufferSize * sizeof(SortType)).wait();
+  q.memcpy(&spy_3_data_count_host, spy_3_count, sizeof(int)).wait();
+
+
+  std::ofstream myfile_spy_3;
+  myfile_spy_3.open ("spy_3.txt");
+
+  for (int i =0; i<spy_3_data_count_host; i++){
+    auto current_data = spy_3_data_host[i];
+
+    unsigned int partkey = current_data.partkey;
+    long long partvalue = current_data.partvalue;
+    myfile_spy_3 << i << "/" << (spy_3_data_count_host-1) << std::endl;
+    myfile_spy_3 << partkey << " "
+              << partvalue << " "
+              << std::endl;
+
+  }
+  myfile_spy_3.close();
+
+  std::cout << "wrote to spy_3.txt" << std::endl;
+
+
+  SortType spy_4_data_host[kSpy1BufferSize];
+  int spy_4_data_count_host;
+  q.memcpy(spy_4_data_host, spy_4_data, kSpy1BufferSize * sizeof(SortType)).wait();
+  q.memcpy(&spy_4_data_count_host, spy_4_count, sizeof(int)).wait();
+
+
+  std::ofstream myfile_spy_4;
+  myfile_spy_4.open ("spy_4.txt");
+
+  for (int i =0; i<spy_4_data_count_host; i++){
+    auto current_data = spy_4_data_host[i];
+
+    unsigned int partkey = current_data.partkey;
+    long long partvalue = current_data.partvalue;
+    myfile_spy_4 << i << "/" << (spy_4_data_count_host-1) << std::endl;
+    myfile_spy_4 << partkey << " "
+              << partvalue << " "
+              << std::endl;
+
+  }
+  myfile_spy_4.close();
+
+  std::cout << "wrote to spy_4.txt" << std::endl;
+
+  free(spy_1_data, q);
+  free(spy_1_count, q);
+  free(spy_2_data, q);
+  free(spy_2_count, q);
+  free(spy_3_data, q);
+  free(spy_3_count, q);
+  free(spy_4_data, q);
+  free(spy_4_count, q);
+
+
   // gather profiling info
   auto start_time =
       consume_sort_event
@@ -267,8 +474,10 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
   auto end_time = consume_sort_event
           .get_profiling_info<info::event_profiling::command_end>();
 
+
   // calculating the kernel execution time in ms
   auto kernel_execution_time = (end_time - start_time) * 1e-6;
+  std::cout << "Kernel time: " << kernel_execution_time << std::endl;
 
   kernel_latency = kernel_execution_time;
   total_latency = diff.count();
