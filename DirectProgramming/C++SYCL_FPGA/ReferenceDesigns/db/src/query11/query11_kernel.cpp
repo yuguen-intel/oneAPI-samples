@@ -50,7 +50,7 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
                     std::vector<DBDecimal>& values,
                     double& kernel_latency, double& total_latency) {
   // find the nationkey based on the nation name
-  assert(dbinfo.n.name_key_map.find(nation) != dbinfo.n.name_key_map.end());
+  // assert(dbinfo.n.name_key_map.find(nation) != dbinfo.n.name_key_map.end());
   unsigned char nationkey = dbinfo.n.name_key_map[nation];
 
   // ensure correctly sized output buffers
@@ -72,23 +72,35 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
   buffer values_buf(values);
 
 
-  constexpr int kSpy1BufferSize = 800000;
+  constexpr int kSpy1BufferSize = 1000000;
   PartSupplierRowPipeData * spy_1_data = sycl::malloc_device<PartSupplierRowPipeData>(kSpy1BufferSize, q);
   int * spy_1_count = sycl::malloc_device<int>(1, q);
 
-  constexpr int kSpy2BufferSize = 800000;
+  constexpr int kSpy2BufferSize = 1000000;
   SupplierPartSupplierJoinedPipeData * spy_2_data = sycl::malloc_device<SupplierPartSupplierJoinedPipeData>(kSpy2BufferSize, q);
   int * spy_2_count = sycl::malloc_device<int>(1, q);
 
-  constexpr int kSpy3BufferSize = 800000;
+  constexpr int kSpy3BufferSize = 1000000;
   SortType * spy_3_data = sycl::malloc_device<SortType>(kSpy3BufferSize, q);
   int * spy_3_count = sycl::malloc_device<int>(1, q);
 
-  constexpr int kSpy4BufferSize = 800000;
+  constexpr int kSpy4BufferSize = 1000000;
   SortType * spy_4_data = sycl::malloc_device<SortType>(kSpy4BufferSize, q);
   int * spy_4_count = sycl::malloc_device<int>(1, q);
 
-
+  if(spy_1_data == nullptr ||
+     spy_1_count == nullptr ||
+     spy_2_data == nullptr ||
+     spy_2_count == nullptr ||
+     spy_3_data == nullptr ||
+     spy_3_count == nullptr ||
+     spy_4_data == nullptr ||
+     spy_4_count == nullptr
+    )
+  {
+    std::cerr << "Device memory allocation failure" << std::endl;
+    std::terminate();
+  }
 
   // number of producing iterations depends on the number of elements per cycle
   const size_t ps_rows = dbinfo.ps.rows;
@@ -344,11 +356,19 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
 
 
 
-  PartSupplierRowPipeData spy_1_data_host[kSpy1BufferSize];
+  PartSupplierRowPipeData* spy_1_data_host = (PartSupplierRowPipeData*) malloc(kSpy1BufferSize * sizeof(PartSupplierRowPipeData));
+  if (spy_1_data_host == nullptr){
+    std::cerr << "Failed to allocate host data memory" << std::endl;
+    std::terminate();
+  }
   int spy_1_data_count_host;
+  
+  std::cout << "Copying from device to host" << std::endl;
+
   q.memcpy(spy_1_data_host, spy_1_data, kSpy1BufferSize * sizeof(PartSupplierRowPipeData)).wait();
   q.memcpy(&spy_1_data_count_host, spy_1_count, sizeof(int)).wait();
 
+  std::cout << "Copy over" << std::endl;
 
   std::ofstream myfile_spy_1;
   myfile_spy_1.open ("spy_1.txt");
@@ -372,14 +392,23 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
 
   }
   myfile_spy_1.close();
-
+  std::cout << "Freeing memory" << std::endl;
+  free(spy_1_data_host);
 
   std::cout << "wrote to spy_1.txt" << std::endl;
 
-  SupplierPartSupplierJoinedPipeData spy_2_data_host[kSpy1BufferSize];
+  SupplierPartSupplierJoinedPipeData* spy_2_data_host = (SupplierPartSupplierJoinedPipeData*) malloc(kSpy1BufferSize * sizeof(SupplierPartSupplierJoinedPipeData));
+  if (spy_2_data_host == nullptr){
+    std::cerr << "Failed to allocate host data memory" << std::endl;
+    std::terminate();
+  }
   int spy_2_data_count_host;
+
+  std::cout << "Copying from device to host" << std::endl;
+
   q.memcpy(spy_2_data_host, spy_2_data, kSpy1BufferSize * sizeof(SupplierPartSupplierJoinedPipeData)).wait();
   q.memcpy(&spy_2_data_count_host, spy_2_count, sizeof(int)).wait();
+  std::cout << "Copy over" << std::endl;
 
 
   std::ofstream myfile_spy_2;
@@ -404,14 +433,25 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
 
   }
   myfile_spy_2.close();
+  std::cout << "Freeing memory" << std::endl;
+
+  free(spy_2_data_host);
 
   std::cout << "wrote to spy_2.txt" << std::endl;
 
 
-  SortType spy_3_data_host[kSpy1BufferSize];
+  SortType* spy_3_data_host = (SortType*) malloc(kSpy1BufferSize * sizeof(SortType));
+  if (spy_3_data_host == nullptr){
+    std::cerr << "Failed to allocate host data memory" << std::endl;
+    std::terminate();
+  }
   int spy_3_data_count_host;
+
+  std::cout << "Copying from device to host" << std::endl;
+
   q.memcpy(spy_3_data_host, spy_3_data, kSpy1BufferSize * sizeof(SortType)).wait();
   q.memcpy(&spy_3_data_count_host, spy_3_count, sizeof(int)).wait();
+  std::cout << "Copy over" << std::endl;
 
 
   std::ofstream myfile_spy_3;
@@ -429,15 +469,25 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
 
   }
   myfile_spy_3.close();
+  std::cout << "Freeing memory" << std::endl;
+  free(spy_3_data_host);
 
   std::cout << "wrote to spy_3.txt" << std::endl;
 
 
-  SortType spy_4_data_host[kSpy1BufferSize];
+  SortType* spy_4_data_host = (SortType*) malloc(kSpy1BufferSize*sizeof(SortType));
+  if (spy_4_data_host == nullptr){
+    std::cerr << "Failed to allocate host data memory" << std::endl;
+    std::terminate();
+  }
   int spy_4_data_count_host;
+
+  std::cout << "Copying from device to host" << std::endl;
+
   q.memcpy(spy_4_data_host, spy_4_data, kSpy1BufferSize * sizeof(SortType)).wait();
   q.memcpy(&spy_4_data_count_host, spy_4_count, sizeof(int)).wait();
 
+  std::cout << "Copy over" << std::endl;
 
   std::ofstream myfile_spy_4;
   myfile_spy_4.open ("spy_4.txt");
@@ -454,17 +504,19 @@ bool SubmitQuery11(queue& q, Database& dbinfo, std::string& nation,
 
   }
   myfile_spy_4.close();
+  std::cout << "Freeing memory" << std::endl;
+  free(spy_4_data_host);
 
   std::cout << "wrote to spy_4.txt" << std::endl;
 
-  free(spy_1_data, q);
-  free(spy_1_count, q);
-  free(spy_2_data, q);
-  free(spy_2_count, q);
-  free(spy_3_data, q);
-  free(spy_3_count, q);
-  free(spy_4_data, q);
-  free(spy_4_count, q);
+  // free(spy_1_data, q);
+  // free(spy_1_count, q);
+  // free(spy_2_data, q);
+  // free(spy_2_count, q);
+  // free(spy_3_data, q);
+  // free(spy_3_count, q);
+  // free(spy_4_data, q);
+  // free(spy_4_count, q);
 
 
   // gather profiling info
