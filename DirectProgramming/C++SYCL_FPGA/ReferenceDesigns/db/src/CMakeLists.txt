@@ -4,13 +4,6 @@ set(EMULATOR_TARGET ${TARGET_NAME}.fpga_emu)
 set(SIMULATOR_TARGET ${TARGET_NAME}.fpga_sim)
 set(FPGA_TARGET ${TARGET_NAME}.fpga)
 
-# which query are we doing?
-if(NOT DEFINED QUERY)
-    message(STATUS "\t!!QUERY variable is NOT set, defaulting to QUERY=1!!")
-    set(QUERY 1)
-else()
-    message(STATUS "\tQUERY=${QUERY}")
-endif()
 
 # FPGA board selection
 if(NOT DEFINED FPGA_DEVICE)
@@ -45,44 +38,16 @@ else()
     set(AC_TYPES_FLAG "-qactypes")
 endif()
 
-# ensure a supported query was requested
-if(NOT ${QUERY} EQUAL 1 AND NOT ${QUERY} EQUAL 9 AND NOT ${QUERY} EQUAL 11 AND NOT ${QUERY} EQUAL 12)
-  message(FATAL_ERROR "\tQUERY ${QUERY} not supported (supported queries are 1, 9, 11 and 12)")
-endif()
 
 # Pick the default seed if the user did not specify one to CMake.
 # We do a seed sweep to find a good seed by default
 if(NOT DEFINED SEED)
     if(DEVICE_FLAG MATCHES "A10")
-        if(${QUERY} EQUAL 1)
-            set(SEED "-Xsseed=2")
-        elseif(${QUERY} EQUAL 9)
-            set(SEED "-Xsseed=2")
-        elseif(${QUERY} EQUAL 11)
-            set(SEED "-Xsseed=4")
-        elseif(${QUERY} EQUAL 12)
-            set(SEED "-Xsseed=2")
-        endif()
+        set(SEED "-Xsseed=4")
     elseif(DEVICE_FLAG MATCHES "S10")
-        if(${QUERY} EQUAL 1)
-            set(SEED "-Xsseed=3")
-        elseif(${QUERY} EQUAL 9)
-            set(SEED "-Xsseed=2")
-        elseif(${QUERY} EQUAL 11)
-            set(SEED "-Xsseed=3")
-        elseif(${QUERY} EQUAL 12)
-            set(SEED "-Xsseed=2")
-        endif()
+        set(SEED "-Xsseed=3")
     elseif(DEVICE_FLAG MATCHES "Agilex7")
-        if(${QUERY} EQUAL 1)
-            set(SEED "-Xsseed=2")
-        elseif(${QUERY} EQUAL 9)
-            set(SEED "-Xsseed=2")
-        elseif(${QUERY} EQUAL 11)
-            set(SEED "-Xsseed=4")
-        elseif(${QUERY} EQUAL 12)
-            set(SEED "-Xsseed=3")
-        endif()
+        set(SEED "-Xsseed=4")
     else()
         set(SEED "-Xsseed=1")
     endif()
@@ -92,44 +57,31 @@ if(IGNORE_DEFAULT_SEED)
     set(SEED "")
 endif()
 
-# Error out if trying to run Q9 or Q11 on Arria 10
-if (DEVICE_FLAG MATCHES "A10")
-    if(${QUERY} EQUAL 9 OR ${QUERY} EQUAL 11)
-      message(FATAL_ERROR "Queries 9 and 11 are not supported on Arria 10 devices")
-    endif()
-endif()
+
 
 # set number of CPU cores to use for quartus® compile, default=2
 if(NOT DEFINED QUARTUS_CORES)
     set(QUARTUS_CORES 2)
 endif()
 
-# check if they want to use the small database
-if(SF_SMALL)
-    message(STATUS "\tManual override for database size - building for small database (SF=0.01)")
-    set(SF_SMALL_ARG -DSF_SMALL)
-else()
-    set(SF_SMALL_ARG )
-endif()
-
 # A SYCL ahead-of-time (AoT) compile processes the device code in two stages.
 # 1. The "compile" stage compiles the device code to an intermediate representation (SPIR-V).
 # 2. The "link" stage invokes the compiler's FPGA backend before linking.
 #    For this reason, FPGA backend flags must be passed as link flags in CMake.
-set(EMULATOR_COMPILE_FLAGS "-fsycl  -Wall ${WIN_FLAG} -DQUERY=${QUERY} ${SF_SMALL_ARG} ${AC_TYPES_FLAG} -DFPGA_EMULATOR -g -O0 ")
-set(EMULATOR_LINK_FLAGS "-fsycl  -DQUERY=${QUERY} ${SF_SMALL_ARG} ${AC_TYPES_FLAG} -g -O0 ")
-set(SIMULATOR_COMPILE_FLAGS "-fsycl -fintelfpga -Wall ${WIN_FLAG} -DQUERY=${QUERY} ${SF_SMALL_ARG} ${AC_TYPES_FLAG} -Xssimulation -DFPGA_SIMULATOR")
-set(SIMULATOR_LINK_FLAGS "-fsycl -fintelfpga -Xssimulation -Xsghdl -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} -DQUERY=${QUERY} ${SF_SMALL_ARG} ${USER_HARDWARE_FLAGS} ${AC_TYPES_FLAG}")
-set(REPORT_COMPILE_FLAGS "-fsycl -fintelfpga -Wall ${WIN_FLAG} -DQUERY=${QUERY} ${SF_SMALL_ARG} ${AC_TYPES_FLAG} -DFPGA_HARDWARE")
-set(REPORT_LINK_FLAGS "-fsycl -fintelfpga -Xshardware -Xsparallel=2 -Xsseed=2 -Xstarget=${FPGA_DEVICE} -DQUERY=${QUERY} ${SF_SMALL_ARG} ${USER_HARDWARE_FLAGS}")
-set(HARDWARE_COMPILE_FLAGS "-fsycl -fintelfpga -Wall ${WIN_FLAG} -DQUERY=${QUERY} ${SF_SMALL_ARG} ${AC_TYPES_FLAG} -DFPGA_HARDWARE")
-set(HARDWARE_LINK_FLAGS "-fsycl -fintelfpga -Xshardware -Xsparallel=2 ${SEED} -Xstarget=${FPGA_DEVICE} -DQUERY=${QUERY} ${SF_SMALL_ARG} ${USER_HARDWARE_FLAGS} ${AC_TYPES_FLAG}")
+set(EMULATOR_COMPILE_FLAGS "-fsycl  -Wall ${WIN_FLAG} ${AC_TYPES_FLAG} -DFPGA_EMULATOR -g -O0 ")
+set(EMULATOR_LINK_FLAGS "-fsycl   ${AC_TYPES_FLAG} -g -O0 ")
+set(SIMULATOR_COMPILE_FLAGS "-fsycl -fintelfpga -Wall ${WIN_FLAG}${AC_TYPES_FLAG} -Xssimulation -DFPGA_SIMULATOR")
+set(SIMULATOR_LINK_FLAGS "-fsycl -fintelfpga -Xssimulation -Xsghdl -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} ${USER_HARDWARE_FLAGS} ${AC_TYPES_FLAG}")
+set(REPORT_COMPILE_FLAGS "-fsycl -fintelfpga -Wall ${WIN_FLAG} ${AC_TYPES_FLAG} -DFPGA_HARDWARE")
+set(REPORT_LINK_FLAGS "-fsycl -fintelfpga -Xshardware -Xsparallel=2 -Xsseed=2 -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS}")
+set(HARDWARE_COMPILE_FLAGS "-fsycl -fintelfpga -Wall ${WIN_FLAG} ${AC_TYPES_FLAG} -DFPGA_HARDWARE")
+set(HARDWARE_LINK_FLAGS "-fsycl -fintelfpga -Xshardware -Xsparallel=2 ${SEED} -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS} ${AC_TYPES_FLAG}")
 # use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA backend compilation
 
 ###############################################################################
 ### FPGA Emulator
 ###############################################################################
-add_executable(${EMULATOR_TARGET} ${SOURCE_FILE} ${DEVICE_SOURCE})
+add_executable(${EMULATOR_TARGET} ${SOURCE_FILE})
 target_include_directories(${EMULATOR_TARGET} PRIVATE ../../../include)
 set_target_properties(${EMULATOR_TARGET} PROPERTIES COMPILE_FLAGS "${EMULATOR_COMPILE_FLAGS}")
 set_target_properties(${EMULATOR_TARGET} PROPERTIES LINK_FLAGS "${EMULATOR_LINK_FLAGS}")
@@ -138,7 +90,7 @@ add_custom_target(fpga_emu DEPENDS ${EMULATOR_TARGET})
 ###############################################################################
 ### FPGA Simulator
 ###############################################################################
-add_executable(${SIMULATOR_TARGET} ${SOURCE_FILE} ${DEVICE_SOURCE})
+add_executable(${SIMULATOR_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILE} )
 target_include_directories(${SIMULATOR_TARGET} PRIVATE ../../../include)
 set_target_properties(${SIMULATOR_TARGET} PROPERTIES COMPILE_FLAGS "${SIMULATOR_COMPILE_FLAGS}")
 set_target_properties(${SIMULATOR_TARGET} PROPERTIES LINK_FLAGS "${SIMULATOR_LINK_FLAGS}")
@@ -149,7 +101,7 @@ add_custom_target(fpga_sim DEPENDS ${SIMULATOR_TARGET})
 ###############################################################################
 set(FPGA_EARLY_IMAGE ${TARGET_NAME}_report.a)
 # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
-add_executable(${FPGA_EARLY_IMAGE} ${SOURCE_FILE} ${DEVICE_SOURCE})
+add_executable(${FPGA_EARLY_IMAGE} EXCLUDE_FROM_ALL ${SOURCE_FILE} )
 target_include_directories(${FPGA_EARLY_IMAGE} PRIVATE ../../../include)
 add_custom_target(report DEPENDS ${FPGA_EARLY_IMAGE})
 set_target_properties(${FPGA_EARLY_IMAGE} PROPERTIES COMPILE_FLAGS "${REPORT_COMPILE_FLAGS}")
@@ -159,7 +111,7 @@ set_target_properties(${FPGA_EARLY_IMAGE} PROPERTIES LINK_FLAGS "${REPORT_LINK_F
 ###############################################################################
 ### FPGA Hardware
 ###############################################################################
-add_executable(${FPGA_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILE} ${DEVICE_SOURCE})
+add_executable(${FPGA_TARGET} EXCLUDE_FROM_ALL ${SOURCE_FILE} )
 target_include_directories(${FPGA_TARGET} PRIVATE ../../../include)
 add_custom_target(fpga DEPENDS ${FPGA_TARGET})
 set_target_properties(${FPGA_TARGET} PROPERTIES COMPILE_FLAGS "${HARDWARE_COMPILE_FLAGS}")
