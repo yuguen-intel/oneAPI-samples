@@ -58,12 +58,6 @@ if(IGNORE_DEFAULT_SEED)
 endif()
 
 
-
-# set number of CPU cores to use for quartus® compile, default=2
-if(NOT DEFINED QUARTUS_CORES)
-    set(QUARTUS_CORES 2)
-endif()
-
 # A SYCL ahead-of-time (AoT) compile processes the device code in two stages.
 # 1. The "compile" stage compiles the device code to an intermediate representation (SPIR-V).
 # 2. The "link" stage invokes the compiler's FPGA backend before linking.

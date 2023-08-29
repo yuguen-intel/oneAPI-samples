@@ -249,11 +249,11 @@ int main(int argc, char* argv[]) {
 
           if (read.partvalue != spy_4_golden_data[i].partvalue ||
               read.partkey != spy_4_golden_data[i].partkey) {
-            PRINTF("At index %d\n", i);
-            PRINTF("Partkey; expecting %lld, got %lld\n",
-                   spy_4_golden_data[i].partkey, read.partkey);
-            PRINTF("Partvalue; expecting %lld, got %lld\n",
-                   spy_4_golden_data[i].partvalue, read.partvalue);
+            // PRINTF("At index %d\n", i);
+            // PRINTF("Partkey; expecting %lld, got %lld\n",
+            //        spy_4_golden_data[i].partkey, read.partkey);
+            // PRINTF("Partvalue; expecting %lld, got %lld\n",
+            //        spy_4_golden_data[i].partvalue, read.partvalue);
             pass = 1;
           }
         }
