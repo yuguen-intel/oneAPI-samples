@@ -500,6 +500,60 @@ class Preloader {
 #endif
 };
 
+template<class SortType>
+class StageDumpYohann {
+ public:
+  StageDumpYohann() {}
+
+  StageDumpYohann(SortType getSfifosA, SortType getSfifosB, int output_start_s, int remove_count_a_s, int remove_count_b_s, bool removed_n_a_s, bool removed_n_b_s, int receive_count_s, bool is_receiving_b_s, int i_m_stage_start_s, SortType stream_data_s, SortType stream_data_s_p_1, int remove_count_a_inc_s, int remove_count_b_inc_s, bool removed_n_a_increment_s, bool removed_n_b_increment_s, Preloader<SortType, 15, 16> preloadersA_s, Preloader<SortType, 15, 16> preloadersB_s, int remove_count_a_inc_inc_s, int remove_count_b_inc_inc_s){
+
+    this->getSfifosA = getSfifosA;
+    this->getSfifosB = getSfifosB;
+    this->output_start_s = output_start_s;
+    this->remove_count_a_s = remove_count_a_s;
+    this->remove_count_b_s = remove_count_b_s;
+    this->removed_n_a_s = removed_n_a_s;
+    this->removed_n_b_s = removed_n_b_s;
+    this->receive_count_s = receive_count_s;
+    this->is_receiving_b_s = is_receiving_b_s;
+    this->i_m_stage_start_s = i_m_stage_start_s;
+    this->stream_data_s = stream_data_s;
+    this->stream_data_s_p_1 = stream_data_s_p_1;
+    this->remove_count_a_inc_s = remove_count_a_inc_s;
+    this->remove_count_b_inc_s = remove_count_b_inc_s;
+    this->removed_n_a_increment_s = removed_n_a_increment_s;
+    this->removed_n_b_increment_s = removed_n_b_increment_s;
+    this->preloadersA_s = preloadersA_s;
+    this->preloadersB_s = preloadersB_s;
+    this->remove_count_a_inc_inc_s = remove_count_a_inc_inc_s;
+    this->remove_count_b_inc_inc_s = remove_count_b_inc_inc_s;
+
+  }
+
+  SortType getSfifosA;
+  SortType getSfifosB;
+  int output_start_s;
+  int remove_count_a_s;
+  int remove_count_b_s;
+  bool removed_n_a_s;
+  bool removed_n_b_s;
+  int receive_count_s;
+  bool is_receiving_b_s;
+  int i_m_stage_start_s;
+  SortType stream_data_s;
+  SortType stream_data_s_p_1;
+  int remove_count_a_inc_s;
+  int remove_count_b_inc_s;
+  bool removed_n_a_increment_s;
+  bool removed_n_b_increment_s;
+  Preloader<SortType, 15, 16> preloadersA_s;
+  Preloader<SortType, 15, 16> preloadersB_s;
+  int remove_count_a_inc_inc_s;
+  int remove_count_b_inc_inc_s;
+
+};
+
+
 //============================= Merge Stage =============================//
 
 // A merge iteration for a single stage of the FIFO Merge Sorter. The first
@@ -507,8 +561,8 @@ class Preloader {
 // can be outputted. sz_fifo: Number of cycles after which the receiving FIFO is
 // switched. sort_size: Total number of elements to be sorted.
 template <class SortType, int sort_size, int sz_fifo, char sz_preload,
-          char ld_dist, class Compare>
-void merge(FIFO<SortType, sz_fifo> &fifo_a, FIFO<SortType, sz_fifo> &fifo_b,
+          char ld_dist, int s, class Compare>
+void merge(int index, StageDumpYohann<SortType>* dump_ptr, FIFO<SortType, sz_fifo> &fifo_a, FIFO<SortType, sz_fifo> &fifo_b,
            const int output_start, int &remove_count_a, int &remove_count_b,
            bool &removed_n_a, bool &removed_n_b, int &receive_count,
            bool &is_receiving_b, const int i, SortType &stream_in_data,
@@ -523,6 +577,32 @@ void merge(FIFO<SortType, sz_fifo> &fifo_a, FIFO<SortType, sz_fifo> &fifo_b,
   if (reading_in_stream)
     std::cout << "Input stream data: " << stream_in_data << std::endl;
 #endif
+
+  if(index<60){
+    auto dump = StageDumpYohann<SortType>(
+                {}, {}, output_start, remove_count_a, remove_count_b,
+           removed_n_a, removed_n_b, receive_count,
+           is_receiving_b, i, stream_in_data,
+           out_data, remove_count_a_inc, remove_count_b_inc,
+           removed_n_a_increment, removed_n_b_increment,
+           // preloader_a,
+           // preloader_b,
+           {},
+           {},
+           remove_count_a_inc_inc, remove_count_b_inc_inc);  
+
+    // auto dump = StageDumpYohann<SortType>(
+    //             {}, {}, output_start[s],
+    //             remove_count_a[s], remove_count_b[s], removed_n_a[s], removed_n_b[s],
+    //             receive_count[s], is_receiving_b[s], i - stage_start[s],
+    //             stream_data[s], stream_data[s + 1], remove_count_a_inc[s],
+    //             remove_count_b_inc[s], removed_n_a_increment[s],
+    //             removed_n_b_increment[s], preloadersA[s], preloadersB[s],
+    //             remove_count_a_inc_inc[s], remove_count_b_inc_inc[s]);  
+
+    dump_ptr[index*18 + s] = dump;
+  }
+
 
   // Main block for comparing FIFO data and selecting an output
   if (i >= output_start) {
@@ -685,11 +765,12 @@ struct SortStages {
       decltype(make_array(std::make_integer_sequence<int, num_stages>()));
 };
 
+
 //=================================== Sort ===================================//
 
 template <class SortType, int sort_size, class input_pipe, class output_pipe,
           class Compare>
-void sort(Compare compare) {
+void sort(Compare compare, StageDumpYohann<SortType>* dump_ptr) {
   static_assert(
       std::is_same<bool, decltype(compare(std::declval<SortType>(),
                                           std::declval<SortType>()))>::value,
@@ -698,6 +779,8 @@ void sort(Compare compare) {
 
   //constexpr char num_stages = std::integral_constant<char, Log2(sort_size)>();
   constexpr unsigned char num_stages = std::integral_constant<unsigned char, Log2(sort_size)>();
+
+  // Yohann: There are 18 stages.
 
   // Create FIFOs
   typename SortStages<SortType, num_stages>::Stages fifosA;
@@ -770,6 +853,8 @@ void sort(Compare compare) {
       num_stages * sz_preload + sort_size - 1;
   constexpr int kTotalIter = kOutputStartLastStage + sort_size;
 
+  // Yohann: kTotalIter = 524557
+
   // Sort
   //[[intel::initiation_interval(1)]]
   for (int i = 0; i < kTotalIter; i++) {
@@ -782,7 +867,7 @@ void sort(Compare compare) {
     // All sort stages
     stage_unroller<0, num_stages, 1>::step([&](auto s, auto sz_fifo) {
       if (i >= stage_start[s])
-        merge<SortType, sort_size, sz_fifo, sz_preload, ld_dist>(
+        merge<SortType, sort_size, sz_fifo, sz_preload, ld_dist, s>(i, dump_ptr, 
             std::get<s>(fifosA), std::get<s>(fifosB), output_start[s],
             remove_count_a[s], remove_count_b[s], removed_n_a[s], removed_n_b[s],
             receive_count[s], is_receiving_b[s], i - stage_start[s],
@@ -794,6 +879,18 @@ void sort(Compare compare) {
 
     if (i >= kOutputStartLastStage)
       output_pipe::write(stream_data[num_stages]);
+
+    // SortType fifosA_unrolled[num_stages];
+    // SortType fifosB_unrolled[num_stages];
+    // stage_unroller<0, num_stages, 1>::step([&](auto s, auto sz_fifo) {
+    //   fifosA_unrolled[s].partkey = std::get<s>(fifosA).partkey;
+    //   fifosA_unrolled[s].partvalue = std::get<s>(fifosA).partvalue;
+    //   fifosB_unrolled[s].partkey = std::get<s>(fifosB).partkey;
+    //   fifosB_unrolled[s].partvalue = std::get<s>(fifosB).partvalue;
+    // });
+
+
+
   }
 }
 

@@ -220,6 +220,19 @@ int main(int argc, char* argv[]) {
       std::terminate();
     }
 
+    /*
+      Allocate device data to store the fifo dumps
+    */
+
+    ihc::StageDumpYohann<OutputData>* stage_dump_device =
+    sycl::malloc_device<ihc::StageDumpYohann<OutputData>>(60 * 18, q);
+    if (stage_dump_device == nullptr) {
+      std::cerr << "Device memory allocation failure for dumps" << std::endl;
+      std::terminate();
+    }
+
+
+
     std::cout << "Kernel data" << std::endl;
 
     // Kernel that feeds the golden inputs
@@ -232,11 +245,14 @@ int main(int argc, char* argv[]) {
       });
     });
 
+
+
+
     ///////////////////////////////////////////////////////////////////////////
     //// FifoSort Kernel
     auto sort_event = q.single_task<FifoSort>([=] {
       ihc::sort<OutputData, kSortSize, SortInPipeSpy3, SortOutPipe>(
-          GreaterThan());
+          GreaterThan(), stage_dump_device);
     });
     ///////////////////////////////////////////////////////////////////////////
 
@@ -269,6 +285,47 @@ int main(int argc, char* argv[]) {
     */
     std::array<int, 1> res;
     q.memcpy(res.data(), spy_4_check, sizeof(int)).wait();
+
+    std::array<ihc::StageDumpYohann<OutputData>, 60 * 18> host_dumps;
+    q.memcpy(host_dumps.data(), stage_dump_device, sizeof(ihc::StageDumpYohann<OutputData>) * 60 * 18).wait();
+
+    std::cout << "test printing dumps " << host_dumps[0].output_start_s << std::endl;
+
+    std::ofstream myfile_dump;
+    myfile_dump.open ("dump.txt");
+
+    for (int i =0; i<60; i++){
+      for(int stage=0; stage<18; stage++){
+        auto current_data = host_dumps[i*18+stage];
+        myfile_dump 
+                  << current_data.output_start_s << " "
+                  << current_data.remove_count_a_s << " "
+                  << current_data.remove_count_b_s << " "
+                  << current_data.removed_n_a_s << " "
+                  << current_data.removed_n_b_s << " "
+                  << current_data.receive_count_s << " "
+                  << current_data.is_receiving_b_s << " "
+                  << current_data.i_m_stage_start_s << " "
+                  << current_data.stream_data_s.partkey << " "
+                  << current_data.stream_data_s.partvalue << " "
+                  << current_data.stream_data_s_p_1.partkey << " "
+                  << current_data.stream_data_s_p_1.partvalue << " "
+                  << current_data.remove_count_a_inc_s << " "
+                  << current_data.remove_count_b_inc_s << " "
+                  << current_data.removed_n_a_increment_s << " "
+                  << current_data.removed_n_b_increment_s << " "
+                  << current_data.remove_count_a_inc_inc_s << " "
+                  << current_data.remove_count_b_inc_inc_s << " "
+                  << std::endl;
+      }
+
+
+    }
+    myfile_dump.close();
+
+    std::cout << "wrote to dump.txt" << std::endl;
+
+
 
     bool pass = res[0] == 0;
     std::cout << (pass ? "PASS" : "FAIL") << std::endl;
