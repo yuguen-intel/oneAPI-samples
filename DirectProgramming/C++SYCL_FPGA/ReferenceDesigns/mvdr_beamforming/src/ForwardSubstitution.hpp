@@ -168,6 +168,9 @@ event SubmitForwardSubstitutionKernel(queue& q) {
           ComplexType x_vector[k_vector_size];
 
           // iterate over all columns in L
+          // This is not a critical loop, stop the compiler from
+          // dropping fmax in order to improve the II of this loop
+          [[intel::initiation_interval(13)]]  // NO-FORMAT: Attribute
           for (short col = 0; col < k_vector_size; col++) {
             // y_scaled = y[col] / L[col][col] (diagonal value of L)
             auto y_scaled = y_at_next_col_pos * l_diag_recip_vector[col];
