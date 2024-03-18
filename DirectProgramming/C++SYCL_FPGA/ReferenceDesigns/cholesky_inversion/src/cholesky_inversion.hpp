@@ -14,15 +14,14 @@
 #include "streaming_cholesky.hpp"
 #include "streaming_cholesky_inversion.hpp"
 #include "tuple.hpp"
+#include <unistd.h>
 
 // Forward declare the kernel and pipe names
 // (This prevents unwanted name mangling in the optimization report.)
 class CholeskyDDRToLocalMem;
-class DecompositionKernel;
-class InversionKernel;
+class Kernel;
 class CholeskyLocalMemToDDR;
 class APipe;
-class LPipe;
 class IPipe;
 
 /*
@@ -56,8 +55,6 @@ void CholeskyInversionImpl(
 
   // Pipes to communicate the A and L matrices between kernels
   using AMatrixPipe = sycl::ext::intel::pipe<APipe, PipeType, 3>;
-  using LMatrixPipe =
-      sycl::ext::intel::pipe<LPipe, TT, kNumElementsPerDDRBurst * 4>;
   using IMatrixPipe =
       sycl::ext::intel::pipe<IPipe, TT, kNumElementsPerDDRBurst * 4>;
 
@@ -78,9 +75,14 @@ void CholeskyInversionImpl(
     return;
   }
 
+  std::cerr << "Copying input matrices to FPGA DDR" << std::endl;
+
   // Copy the matrices to decompose to the FPGA DDR
   q.memcpy(a_device, a_matrix.data(), kAMatrixSize * matrix_count * sizeof(TT))
       .wait();
+
+  std::cerr << "Starting kernels" << std::endl;
+
 
   // Launch a kernel that will repeatedly read the matrices from the FPGA DDR
   // and write their content to the AMatrixPipe pipe.
@@ -91,17 +93,10 @@ void CholeskyInversionImpl(
 
   // Read the A matrix from the AMatrixPipe pipe and compute the Cholesky
   // decomposition. Write the L output matrix to the LMatrixPipe pipe.
-  q.single_task<DecompositionKernel>(
+  q.single_task<Kernel>(
       fpga_linalg::StreamingCholesky<
-          T, is_complex, dimension, raw_latency_decomposition,
-          kNumElementsPerDDRBurst, AMatrixPipe, LMatrixPipe>());
-
-  // Read the L matrix from the LMatrixPipe pipe and compute the Cholesky-based
-  // inversion. Write the I output matrix to the IMatrixPipe pipe.
-  q.single_task<InversionKernel>(
-      fpga_linalg::StreamingCholeskyInversion<
-          T, is_complex, dimension, raw_latency_inversion,
-          kNumElementsPerDDRBurst, LMatrixPipe, IMatrixPipe>());
+          T, is_complex, dimension, raw_latency_decomposition, raw_latency_inversion,
+          kNumElementsPerDDRBurst, AMatrixPipe, IMatrixPipe>());
 
   // Read the I matrix from the LMatrixPipe pipe and copy it to the FPGA DDR
   auto ddr_write_event = q.single_task<CholeskyLocalMemToDDR>([=] {
@@ -109,18 +104,16 @@ void CholeskyInversionImpl(
                             IMatrixPipe>(i_device, matrix_count, repetitions);
   });
 
+  std::cerr << "Waiting for ddr write " << std::endl;
   ddr_write_event.wait();
 
+  std::cerr << "Continuing..." << std::endl;
   // Compute the total time the execution lasted
   auto start_time = ddr_read_event.template get_profiling_info<
       sycl::info::event_profiling::command_start>();
   auto end_time = ddr_write_event.template get_profiling_info<
       sycl::info::event_profiling::command_end>();
   double diff = (end_time - start_time) / 1.0e9;
-
-  // Make sure we throw any asynchronous errors if they have occurred during 
-  // the computation
-  q.throw_asynchronous();
 
   std::cout << "   Total duration:   " << diff << " s" << std::endl;
   std::cout << "Throughput: " << ((repetitions * matrix_count) / diff) * 1e-3
@@ -129,6 +122,7 @@ void CholeskyInversionImpl(
   // Copy the L matrices result from the FPGA DDR to the host memory
   q.memcpy(i_matrix.data(), i_device, kIMatrixSize * matrix_count * sizeof(TT))
       .wait();
+  std::cerr << "copied over" << std::endl;
 
   // Clean allocated FPGA memory
   free(a_device, q);

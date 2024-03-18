@@ -8,6 +8,7 @@
 #include "exception_handler.hpp"
 // included from ../../../../include
 #include "cholesky_inversion.hpp"
+// #define DEBUG
 
 // Use "#define DEBUG" to print debugging information such as matrices content
 
@@ -336,7 +337,7 @@ int main(int argc, char *argv[]) {
 #if defined(FPGA_SIMULATOR)
   constexpr size_t kMatricesToInvert = 1;
 #else
-  constexpr size_t kMatricesToInvert = 8;
+  constexpr size_t kMatricesToInvert = 1;
 #endif
 
   // Get the number of times we want to repeat the inversion from the command
@@ -346,7 +347,7 @@ int main(int argc, char *argv[]) {
 #elif defined(FPGA_SIMULATOR)
   int repetitions = argc > 1 ? atoi(argv[1]) : 1;
 #else
-  int repetitions = argc > 1 ? atoi(argv[1]) : 819200;
+  int repetitions = argc > 1 ? atoi(argv[1]) : 1;
 #endif
 
   if (repetitions < 1) {
