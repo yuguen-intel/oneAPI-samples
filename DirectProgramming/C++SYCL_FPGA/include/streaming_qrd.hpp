@@ -113,47 +113,6 @@ struct StreamingQRD {
 
     // Number of upper-right elements in the R output matrix
     constexpr int kRMatrixSize = columns * (columns + 1) / 2;
-    // Fanout reduction factor for signals that fanout to rows compute cores
-    constexpr int kFanoutReduction = 8;
-    // Number of signal replication required to cover all the rows compute cores
-    // given a kFanoutReduction factor
-    constexpr int kBanksForFanout = (rows % kFanoutReduction)
-                                        ? (rows / kFanoutReduction) + 1
-                                        : rows / kFanoutReduction;
-
-    // Number of iterations performed without any dummy work added for the
-    // triangular loop optimization
-    constexpr int kVariableIterations = columns - raw_latency;
-    // Total number of dummy iterations
-    static constexpr int kDummyIterations =
-        raw_latency > columns
-            ? (columns - 1) * columns / 2 + (raw_latency - columns) * columns
-            : raw_latency * (raw_latency - 1) / 2;
-    // Total number of iterations (including dummy iterations)
-    static constexpr int kIterations =
-        columns + columns * (columns + 1) / 2 + kDummyIterations + columns;
-
-    // Size in bits of the "i" loop variable in the triangular loop
-    // i starts from -1 as we are doing a full copy of the matrix read from the
-    // pipe to a "compute" matrix before starting the decomposition
-    constexpr int kIBitSize = fpga_tools::BitsForMaxValue<rows + 1>() + 1;
-
-    // j starts from i, so from -1 and goes up to columns
-    // So we need:
-    // -> enough bits to encode columns+1 for the positive iterations and
-    //    the exit condition
-    // -> one extra bit for the -1
-    // But j may start below -1 if we perform more dummy iterations than the
-    // number of columns in the matrix.
-    // In that case, we need:
-    // -> enough bits to encode columns+1 for the positive iterations and
-    //    the exit condition
-    // -> enough bits to encode the maximum number of negative iterations
-    static constexpr int kJNegativeIterations =
-        kVariableIterations < 0 ? -kVariableIterations : 1;
-    static constexpr int kJBitSize =
-        fpga_tools::BitsForMaxValue<columns + 1>() +
-        fpga_tools::BitsForMaxValue<kJNegativeIterations>();
 
     // Compute QRDs as long as matrices are given as inputs
     while (1) {
@@ -176,13 +135,12 @@ struct StreamingQRD {
       [[intel::bankwidth(kBankwidth)]]        // NO-FORMAT: Attribute
       [[intel::private_copies(4)]]            // NO-FORMAT: Attribute
       [[intel::max_replicates(1)]]            // NO-FORMAT: Attribute
-      column_tuple a_load[columns], a_compute[columns], q_a_result[columns],
-                   b_load[columns], b_compute[columns], q_b_result[columns];
+      column_tuple a_load[columns], a_compute[columns], q_a_result[columns];
 
       // Contains the values of the upper-right part of R in a row by row
       // fashion, starting by row 0
       [[intel::private_copies(4)]]  // NO-FORMAT: Attribute
-      TT r_a_result[kRMatrixSize], r_b_result[kRMatrixSize];
+      TT r_a_result[kRMatrixSize];
 
       // Copy a matrix from the pipe to a local memory
       // Number of pipe reads of pipe_size required to read a full column
@@ -228,378 +186,114 @@ struct StreamingQRD {
         });
       }
 
-
-      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li_b = 0; li_b < kLoopIter; li_b++) {
-        fpga_tools::NTuple<TT, pipe_size> pipe_read = AIn::read();
-
-        int write_idx;
-        int b_col_index;
-        if constexpr (k_column_order) {
-          write_idx = li_b % kLoopIterPerColumn;
-          b_col_index = li_b / kLoopIterPerColumn;
-        } else {
-          write_idx = li_b / columns;
-          b_col_index = li_b % columns;
-        }
-        // int write_idx = li_b / columns;
-
-        fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
-          fpga_tools::UnrolledLoop<pipe_size>([&](auto t) {
-            if (write_idx == k) {
-              if constexpr (k * pipe_size + t < rows) {
-                b_load[b_col_index].template get<k * pipe_size + t>() =
-                    pipe_read.template get<t>();
-              }
-            }
-
-            // Delay data signals to create a vine-based data distribution
-            // to lower signal fanout.
-            pipe_read.template get<t>() =
-                sycl::ext::intel::fpga_reg(pipe_read.template get<t>());
-          });
-
-          write_idx = sycl::ext::intel::fpga_reg(write_idx);
-        });
-      }
-
       // Compute the QR Decomposition
 
-      // r_result write index
-      int r_a_element_index = 0;
-      int r_b_element_index = 0;
-
-      // a local copy of a_{i+1} and b_{i+1} that is used across multiple j iterations
-      // for the computation of pip1 and p
-      TT a_ip1[rows];
-      TT b_ip1[rows];
-
-      // a local copy of a_ip1 and b_ip1 that is used across multiple j iterations
-      // for the computation of a_j and b_j
-      TT a_i[rows];
-      TT b_i[rows];
-
-      // Depending on the context, will contain:
-      // -> -s[j]: for all the iterations to compute a_j
-      // -> ir: for one iteration per j iterations to compute Q_i
-      [[intel::fpga_memory]]        // NO-FORMAT: Attribute
-      [[intel::private_copies(2)]]  // NO-FORMAT: Attribute
-      TT s_or_ir_a[columns];
-      TT s_or_ir_b[columns];
-
-      T pip1_a, ir_a;
-      T pip1_b, ir_b;
-
       // Initialization of the i and j variables for the triangular loop
-      ac_int<kIBitSize, true> i = -1;
-      ac_int<kJBitSize, true> j = 0;
+      int i = 0;
+      int j = 0;
 
-      // We keep track of the value of the current column
-      // If it's a 0 vector, then we need to skip the iteration
-      // This will result in columns in Q being set to 0
-      // This occurs when the input matrix have linearly dependent columns
-      bool projection_is_zero = false;
+      constexpr int kTotalIterations = (raw_latency+1)*(columns-1) + 2;
+
+      TT a_i_m_1[columns];
+
+      [[intel::fpga_register]]
+      TT a_i[columns];
+      TT s[columns];
+      TT ir;
+      TT p;
+
+      int r_index = 0;
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
-      for (int s = 0; s < kIterations; s++) {
+      for (int it = 0; it < kTotalIterations; it++) {
 
-        PRINTF("i: %d, j: %d\n", int(i), int(j));
+        // PRINTF("i: %d, j: %d\n", int(i), int(j));
 
-        bool compute_b = false;
-        int adjusted_j = j;
-        // Is this a "a" or a "b" iteration ?
-        if ((0<=j) && (j<rows)) {
-          // compute a
-        }
-        else if ((rows<=j) && (j<(2*rows))) {
-          // compute b
-          compute_b = true;
-          adjusted_j = j-rows;
-        }
-        else if (i<0) {
-        }
-        else {
-          int upper_j_bound = i+raw_latency;
+        if(j<columns+1){
 
-          // Update loop indexes
-          if (j == upper_j_bound) {
-            // If i reached an index at which the j inner loop doesn't have
-            // enough time to write its result for the next i iteration,
-            // some "dummy" iterations are introduced
-            j = i + 1;
-            i = i + 1;
-          } else {
-            j = j + 1;
-          }
+          TT mult_lhs[rows];
+          TT mult_rhs[rows];
+          TT add[rows];
 
-          continue;
-        }
+          TT mult_add[rows];
 
-        // Two matrix columns for partial results.
-        TT col[rows];
-        TT col1[rows];
+          TT dp{0};
 
-        // Current value of s_or_ir depending on the value of j
-        // It is replicated kFanoutReduction times to reduce fanout
-        TT s_or_ir_j[kBanksForFanout];
+          fpga_tools::UnrolledLoop<rows>([&](auto k) {
 
-        // All the control signals are precomputed and replicated
-        // kFanoutReduction times to reduce fanout
-        bool j_eq_i[kBanksForFanout], i_gt_0[kBanksForFanout],
-            i_ge_0_j_ge_i[kBanksForFanout], j_eq_i_plus_1[kBanksForFanout],
-            i_lt_0[kBanksForFanout], j_ge_0[kBanksForFanout];
-
-        fpga_tools::UnrolledLoop<kBanksForFanout>([&](auto k) {
-          i_gt_0[k] = sycl::ext::intel::fpga_reg(i > 0);
-          i_lt_0[k] = sycl::ext::intel::fpga_reg(i < 0);
-          j_eq_i[k] = sycl::ext::intel::fpga_reg(adjusted_j == i);
-          j_ge_0[k] = sycl::ext::intel::fpga_reg(adjusted_j >= 0);
-          i_ge_0_j_ge_i[k] = sycl::ext::intel::fpga_reg(i >= 0 && adjusted_j >= i);
-          j_eq_i_plus_1[k] = sycl::ext::intel::fpga_reg(adjusted_j == i + 1);
-          if (adjusted_j >= 0) {
-            if(compute_b){
-              s_or_ir_j[k] = sycl::ext::intel::fpga_reg(s_or_ir_b[j]);
+            TT a_j[rows];
+            if (i <= 1) {
+              a_j[k] = a_load[j].template get<k>();
+            }
+            else if (j < columns) {
+              a_j[k] = a_compute[j].template get<k>();
             }
             else {
-              s_or_ir_j[k] = sycl::ext::intel::fpga_reg(s_or_ir_a[j]);
+              a_j[k] = 0;
             }
-          }
-        });
 
-        // Preload col and a_i with the correct data for the current iteration
-        // These are going to be use to compute the dot product of two
-        // different columns of the input matrix.
-        fpga_tools::UnrolledLoop<rows>([&](auto k) {
-          // find which fanout bank this unrolled iteration is going to use
-          constexpr auto fanout_bank_idx = k / kFanoutReduction;
+            if (i == j) {
+              a_i_m_1[k] = a_i[k];
+              // if (k==0) {
+              //   PRINTF("i==j a_i read\n");
+              // }
+            }
 
-          // Load col with the current column of matrix A.
-          // At least one iteration of the outer loop i is required
-          // for the "working copy" a_compute to contain data.
-          // If no i iteration elapsed, we must read the column of
-          // matrix A directly from the a_load; col then contains a_j
-
-          if (i_gt_0[fanout_bank_idx] && j_ge_0[fanout_bank_idx]) {
-            if (compute_b) {
-              col[k] = b_compute[adjusted_j].template get<k>();
+            if (j == columns){
+                mult_lhs[k] = a_i[k];
+                // if (k==0) {
+                //   PRINTF("j=col a_i read\n");
+                // }
+                mult_rhs[k] = ir;
+                add[k] = 0;
+            }
+            else if (i > 0) {
+                mult_lhs[k] = -s[j];
+                mult_rhs[k] = a_i_m_1[k];
+                add[k] = a_j[k];
             }
             else {
-              col[k] = a_compute[adjusted_j].template get<k>();
+                mult_lhs[k] = 0;
+                mult_rhs[k] = 0;
+                add[k] = 0;
             }
-          }
 
-          if (!i_gt_0[fanout_bank_idx] && j_ge_0[fanout_bank_idx]) {
-            if (compute_b) {
-              col[k] = b_load[adjusted_j].template get<k>();
-            }
-            else {
-              col[k] = a_load[adjusted_j].template get<k>();
-            }
-          }
+            mult_add[k] = mult_lhs[k] * mult_rhs[k] + add[k];
 
-          if (compute_b) {
-            // Load b_i for reuse across j iterations
-            if (i_lt_0[fanout_bank_idx]) {
-              b_i[k] = 0;
-            } else if (j_eq_i[fanout_bank_idx]) {
-              b_i[k] = col[k];
+            if (j == columns) {
+              q_a_result[i].template get<k>() = mult_add[k];
             }
-          }
-          else {
-            // Load a_i for reuse across j iterations
-            if (i_lt_0[fanout_bank_idx]) {
-              a_i[k] = 0;
-            } else if (j_eq_i[fanout_bank_idx]) {
-              a_i[k] = col[k];
+            else if (i > 0) {
+              a_compute[j].template get<k>() = mult_add[k];
+              a_j[k] = mult_add[k];
             }
-          }
-        });
 
-        fpga_tools::UnrolledLoop<rows>([&](auto k) {
-          // find which fanout bank this unrolled iteration is going to use
-          constexpr auto fanout_bank_idx = k / kFanoutReduction;
-
-          // Depending on the iteration this code will compute either:
-          // -> If i=j, a column of Q: Q_i = a_i*ir
-          //    In that case, no term is added to the mult_add construct
-          // -> If i!=j, an updated column of a: a_j - s[j]*a_i
-          //    There is a special case if i<0 where a_j is unmodified
-          //    but the i iteration is still required to fill ir and s
-          //    for subsequent iterations
-          auto prod_lhs = compute_b ? b_i[k] : a_i[k];
-          auto prod_rhs =
-              i_lt_0[fanout_bank_idx] ? TT{0.0} : s_or_ir_j[fanout_bank_idx];
-          auto add = j_eq_i[fanout_bank_idx] ? TT{0.0} : col[k];
-          if constexpr (is_complex) {
-            col1[k] = prod_lhs * prod_rhs.conj() + add;
-          } else {
-            col1[k] = prod_lhs * prod_rhs + add;
-          }
-
-          // Store Q_i in q_result and the modified a_j in a_compute
-          // To reduce the amount of control, q_result and a_compute
-          // are both written to for each iteration of i>=0 && j>=i
-          // In fact:
-          // -> q_result could only be written to at iterations i==j
-          // -> a_compute could only be written to at iterations
-          //    j!=i && i>=0
-          // The extra writes are harmless as the locations written to
-          // are either going to be:
-          // -> overwritten for the matrix Q (q_result)
-          // -> unused for the a_compute
-          if (i_ge_0_j_ge_i[fanout_bank_idx] && j_ge_0[fanout_bank_idx]) {
-            if (compute_b) {
-              q_b_result[adjusted_j].template get<k>() = col1[k];
-              b_compute[adjusted_j].template get<k>() = col1[k];
+            if (j==i) {
+              a_i[k] = a_j[k];
+              // if (k==0) {
+              //   PRINTF("j=i a_i write\n");
+              // }
             }
-            else {
-              if (i==adjusted_j){
-                q_a_result[adjusted_j].template get<k>() = col1[k];
-                if(k==0){
-                  PRINTF("Writing q: %f\n", col1[k]);
-                }
-              }
-              if (adjusted_j!=i && i>=0) {
-                a_compute[adjusted_j].template get<k>() = col1[k];
-                if(k==0){
-                  PRINTF("Writing q_compute: %f\n", col1[k]);
-                }
-              }
-            }
-            
-          }
 
-          // Store a_{i+1} for subsequent iterations of j
-          if (j_eq_i_plus_1[fanout_bank_idx]) {
-            if (compute_b) {
-              b_ip1[k] = col1[k];
-            }
-            else {
-              a_ip1[k] = col1[k];
-            }
-          }
-        });
 
-        // Perform the dot product <a_{i+1},a_{i+1}> or <a_{i+1}, a_j>
-        TT p_ij{0.0};
-        fpga_tools::UnrolledLoop<rows>([&](auto k) {
-          if constexpr (is_complex) {
-            p_ij = p_ij + col1[k] * a_ip1[k].conj();
-          } else {
-            p_ij = p_ij + col1[k] * a_ip1[k];
-          }
-        });
+            dp += a_i[k] * a_j[k];
+          });
 
-        // Compute pip1 and ir based on the results of the dot product
-        if (adjusted_j == i + 1) {
-          // Check if the projection of the current columns is the 0 vector
-          projection_is_zero = (i >= 0) && (p_ij == 0);
-
-          if (compute_b) {
-            if constexpr (is_complex) {
-              pip1_b = p_ij.r();
-            } else {
-              pip1_b = p_ij;
-            }
+          if (j==i) {
+            p = dp;
+            ir = sycl::rsqrt(p);
+            r_a_result[r_index] = sycl::sqrt(p);
+            r_index++;
           }
-          else {
-            if constexpr (is_complex) {
-              pip1_a = p_ij.r();
-            } else {
-              pip1_a = p_ij;
-            }
-          }
-
-          // If the projection is 0, we set ir to 1 to be a no-op in the next
-          // iteration when computing Q_i = a_i*ir
-          if (compute_b) {
-            if (projection_is_zero) {
-              ir_b = 1;
-            } else {
-              if constexpr (is_complex) {
-                ir_b = sycl::rsqrt(p_ij.r());
-              } else {
-                ir_b = sycl::rsqrt(p_ij);
-              }
-            }
-          }
-          else {
-            if (projection_is_zero) {
-              ir_a = 1;
-            } else {
-              if constexpr (is_complex) {
-                ir_a = sycl::rsqrt(p_ij.r());
-              } else {
-                ir_a = sycl::rsqrt(p_ij);
-              }
-            }
-          }
-        }
-        
-        auto pip1_ab = compute_b ? pip1_b : pip1_a;
-        auto ir_ab = compute_b ? ir_b : ir_a;
-
-        // Compute the value of -s[j]
-        TT s_j;
-        if(projection_is_zero){
-          s_j = TT{0};
-        }
-        else{
-          if constexpr (is_complex) {
-            s_j = TT{0.0f - (p_ij.r()) / pip1_ab, p_ij.i() / pip1_ab};
-          } else {
-            s_j = -p_ij / pip1_ab;
+          else if (j != columns) {
+            s[j] = dp/p;
+            r_a_result[r_index] = dp*ir;
+            r_index++;
           }
         }
 
-        // j may be negative if the number of "dummy" iterations is
-        // larger than the matrix size
-        if (adjusted_j >= 0) {
-          if constexpr (is_complex) {
-            auto val = TT{adjusted_j == i + 1 ? ir_ab : s_j.r(), adjusted_j == i + 1 ? 0.0f : s_j.i()};
-            if (compute_b) {
-              s_or_ir_b[adjusted_j] = val;
-            }
-            else {
-              s_or_ir_a[j] = val;
-            }
-          } else {
-            auto val = adjusted_j == i + 1 ? ir_ab : s_j; 
-            if (compute_b) {
-              s_or_ir_b[adjusted_j] = val;
-            }
-            else {
-              s_or_ir_a[adjusted_j] = val;
-            }
-          }
-        }
-
-        // Compute the R_{i+1,i+1} or R_{i+1,j}
-        TT r_ip1j;
-        if constexpr (is_complex) {
-          r_ip1j = adjusted_j == i + 1 ? TT{sycl::sqrt(pip1_ab), 0.0}
-                              : TT{ir_ab * p_ij.r(), ir_ab * p_ij.i()};
-        } else {
-          r_ip1j = adjusted_j == i + 1 ? sycl::sqrt(pip1_ab) : ir_ab * p_ij;
-        }
-
-        // Write the computed R value when j is not a "dummy" iteration
-        if ((adjusted_j >= i + 1) && (i + 1 < columns) && (adjusted_j < columns)) {
-          if (compute_b) {
-            r_b_result[r_b_element_index] = r_ip1j;
-            r_b_element_index++;
-
-          }
-          else {
-            r_a_result[r_a_element_index] = r_ip1j;
-            PRINTF("Writing R\n");
-            r_a_element_index++;
-
-          }
-        }
-
-        int upper_j_bound = i+raw_latency;
+        int upper_j_bound = raw_latency + i;
 
         // Update loop indexes
         if (j == upper_j_bound) {
@@ -637,35 +331,6 @@ struct StreamingQRD {
             if constexpr (t * pipe_size + k < rows) {
               pipe_write.template get<k>() =
                   get[t] ? q_a_result[li / kLoopIterPerColumn]
-                               .template get<t * pipe_size + k>()
-                         : sycl::ext::intel::fpga_reg(
-                               pipe_write.template get<k>());
-            }
-          });
-        });
-        QOut::write(pipe_write);
-      }
-
-      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        ROut::write(r_b_result[r_idx]);
-      }
-
-      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
-        int column_iter = li % kLoopIterPerColumn;
-        bool get[kLoopIterPerColumn];
-        fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
-          get[k] = column_iter == k;
-          column_iter = sycl::ext::intel::fpga_reg(column_iter);
-        });
-
-        fpga_tools::NTuple<TT, pipe_size> pipe_write;
-        fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto t) {
-          fpga_tools::UnrolledLoop<pipe_size>([&](auto k) {
-            if constexpr (t * pipe_size + k < rows) {
-              pipe_write.template get<k>() =
-                  get[t] ? q_b_result[li / kLoopIterPerColumn]
                                .template get<t * pipe_size + k>()
                          : sycl::ext::intel::fpga_reg(
                                pipe_write.template get<k>());
