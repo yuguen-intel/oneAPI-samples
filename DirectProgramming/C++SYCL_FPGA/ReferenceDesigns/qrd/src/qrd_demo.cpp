@@ -10,6 +10,8 @@
 
 #include "qrd.hpp"
 
+#define DEBUG
+
 #ifdef FPGA_SIMULATOR
 #define ROWS_COMPONENT_V 8
 #define COLS_COMPONENT_V 8
@@ -108,7 +110,7 @@ int main(int argc, char *argv[]) {
 #if defined(FPGA_SIMULATOR)
   constexpr size_t kMatricesToDecompose = 1;
 #else
-  constexpr size_t kMatricesToDecompose = 8;
+  constexpr size_t kMatricesToDecompose = 2;
 #endif
 
   try {
@@ -243,7 +245,7 @@ int main(int argc, char *argv[]) {
       }
 
   #ifdef DEBUG
-      std::cout << "R MATRIX" << std::endl;
+      std::cout << "R MATRIX " << matrix_index << std::endl;
       for (size_t i = 0; i < kRows; i++) {
         for (size_t j = 0; j < kColumns; j++) {
           std::cout << r_matrix_op[i][j] << " ";
