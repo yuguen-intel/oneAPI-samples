@@ -192,14 +192,14 @@ struct StreamingQRD {
       int i = 0;
       int j = 0;
 
-      constexpr int kTotalIterations = (raw_latency+1)*(columns-1) + 2;
+      constexpr int kTotalIterations = (raw_latency+1)*(columns) + 1;
 
       TT a_i_m_1[columns];
 
       [[intel::fpga_register]]
       TT a_i[columns];
       TT s[columns];
-      TT ir;
+      TT ir, ir_i_m_1;
       TT p;
 
       int r_index = 0;
@@ -208,7 +208,7 @@ struct StreamingQRD {
       [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
       for (int it = 0; it < kTotalIterations; it++) {
 
-        // PRINTF("i: %d, j: %d\n", int(i), int(j));
+        PRINTF("i: %d, j: %d\n", int(i), int(j));
 
         if(j<columns+1){
 
@@ -233,25 +233,25 @@ struct StreamingQRD {
               a_j[k] = 0;
             }
 
-            if (i == j) {
+            if ((j==i) && (j<columns)) {
               a_i_m_1[k] = a_i[k];
-              // if (k==0) {
-              //   PRINTF("i==j a_i read\n");
-              // }
+              PRINTF("a_i_m_1[%d] = %f\n", int(k), a_i_m_1[k]);
             }
 
-            if (j == columns){
-                mult_lhs[k] = a_i[k];
-                // if (k==0) {
-                //   PRINTF("j=col a_i read\n");
-                // }
-                mult_rhs[k] = ir;
-                add[k] = 0;
-            }
-            else if (i > 0) {
-                mult_lhs[k] = -s[j];
-                mult_rhs[k] = a_i_m_1[k];
-                add[k] = a_j[k];
+            if (i > 0) {
+                if (j == columns){
+                    mult_lhs[k] = a_i_m_1[k];
+                    mult_rhs[k] = ir_i_m_1;
+                    if (k==0){
+                      PRINTF("ir_i_m_1 = %f\n", ir_i_m_1);
+                    }
+                    add[k] = 0;
+                }
+                else {
+                  mult_lhs[k] = -s[j];
+                  mult_rhs[k] = a_i_m_1[k];
+                  add[k] = a_j[k];
+                }
             }
             else {
                 mult_lhs[k] = 0;
@@ -261,35 +261,37 @@ struct StreamingQRD {
 
             mult_add[k] = mult_lhs[k] * mult_rhs[k] + add[k];
 
-            if (j == columns) {
-              q_a_result[i].template get<k>() = mult_add[k];
-            }
-            else if (i > 0) {
-              a_compute[j].template get<k>() = mult_add[k];
-              a_j[k] = mult_add[k];
+
+            if (i > 0) {
+              if (j == columns) {
+                q_a_result[i-1].template get<k>() = mult_add[k];
+              }
+              else {
+                a_compute[j].template get<k>() = mult_add[k];
+                a_j[k] = mult_add[k];
+              }
             }
 
             if (j==i) {
               a_i[k] = a_j[k];
-              // if (k==0) {
-              //   PRINTF("j=i a_i write\n");
-              // }
             }
-
 
             dp += a_i[k] * a_j[k];
           });
 
-          if (j==i) {
-            p = dp;
-            ir = sycl::rsqrt(p);
-            r_a_result[r_index] = sycl::sqrt(p);
-            r_index++;
-          }
-          else if (j != columns) {
-            s[j] = dp/p;
-            r_a_result[r_index] = dp*ir;
-            r_index++;
+          if (i<columns) {
+            if (j==i)  {
+              p = dp;
+              ir_i_m_1 = ir;
+              ir = sycl::rsqrt(p);
+              r_a_result[r_index] = sycl::sqrt(p);
+              r_index++;
+            }
+            else if (j != columns) {
+              s[j] = dp/p;
+              r_a_result[r_index] = dp*ir;
+              r_index++;
+            }
           }
         }
 
