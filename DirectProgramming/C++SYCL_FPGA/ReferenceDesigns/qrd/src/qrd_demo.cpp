@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
 #if defined(FPGA_SIMULATOR)
   constexpr size_t kMatricesToDecompose = 1;
 #else
-  constexpr size_t kMatricesToDecompose = 2;
+  constexpr size_t kMatricesToDecompose = 1;
 #endif
 
   try {
