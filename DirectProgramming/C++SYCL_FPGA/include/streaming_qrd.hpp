@@ -191,26 +191,28 @@ struct StreamingQRD {
       // Initialization of the i and j variables for the triangular loop
       int i = 0;
       int j = 0;
+      int j_count = 1;
 
-      constexpr int kTotalIterations = (raw_latency+1)*(columns) + 1;
+      constexpr int kTotalIterations = (raw_latency+1)*(columns) + columns;
 
       TT a_i_m_1[columns];
 
-      [[intel::fpga_register]]
       TT a_i[columns];
-      TT s[columns];
-      TT ir, ir_i_m_1;
-      TT p;
+
+      [[intel::fpga_memory]]
+      TT s_or_ir[columns];
+      
+      T p, ir, ir_i_m_1;
 
       int r_index = 0;
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
+      [[intel::ivdep(raw_latency-1)]]      // NO-FORMAT: Attribute
       for (int it = 0; it < kTotalIterations; it++) {
 
-        PRINTF("i: %d, j: %d\n", int(i), int(j));
+        // PRINTF("i: %d, j: %d\n", int(i), int(j));
 
-        if(j<columns+1){
+        if(j<columns){
 
           TT mult_lhs[rows];
           TT mult_rhs[rows];
@@ -223,7 +225,7 @@ struct StreamingQRD {
           fpga_tools::UnrolledLoop<rows>([&](auto k) {
 
             TT a_j[rows];
-            if (i <= 1) {
+            if ((i <= 1) && (j < columns)) {
               a_j[k] = a_load[j].template get<k>();
             }
             else if (j < columns) {
@@ -233,25 +235,34 @@ struct StreamingQRD {
               a_j[k] = 0;
             }
 
-            if ((j==i) && (j<columns)) {
-              a_i_m_1[k] = a_i[k];
-              PRINTF("a_i_m_1[%d] = %f\n", int(k), a_i_m_1[k]);
+            TT s{0};
+            if ( (j==i-1) && (i>0)) {
+              if constexpr (is_complex) {
+                ir_i_m_1 = s_or_ir[j].r();
+              }
+              else {
+                ir_i_m_1 = s_or_ir[j];
+              }
+            }
+            else{
+              s = s_or_ir[j];
+            }
+
+            if (j==i-1){
+              a_i_m_1[k] = a_j[k];
             }
 
             if (i > 0) {
-                if (j == columns){
-                    mult_lhs[k] = a_i_m_1[k];
-                    mult_rhs[k] = ir_i_m_1;
-                    if (k==0){
-                      PRINTF("ir_i_m_1 = %f\n", ir_i_m_1);
-                    }
-                    add[k] = 0;
-                }
-                else {
-                  mult_lhs[k] = -s[j];
-                  mult_rhs[k] = a_i_m_1[k];
-                  add[k] = a_j[k];
-                }
+              if (j == i-1){
+                mult_lhs[k] = a_i_m_1[k];
+                mult_rhs[k] = ir_i_m_1;
+                add[k] = 0;
+              }
+              else {
+                mult_lhs[k] = a_i_m_1[k];
+                mult_rhs[k] = -s;
+                add[k] = a_j[k];
+              }
             }
             else {
                 mult_lhs[k] = 0;
@@ -259,11 +270,16 @@ struct StreamingQRD {
                 add[k] = 0;
             }
 
-            mult_add[k] = mult_lhs[k] * mult_rhs[k] + add[k];
+            if constexpr (is_complex) {
+              mult_add[k] = mult_lhs[k] * mult_rhs[k].conj() + add[k];
+            }
+            else {
+              mult_add[k] = mult_lhs[k] * mult_rhs[k] + add[k];
+            }
 
 
             if (i > 0) {
-              if (j == columns) {
+              if (j == i-1) {
                 q_a_result[i-1].template get<k>() = mult_add[k];
               }
               else {
@@ -273,39 +289,51 @@ struct StreamingQRD {
             }
 
             if (j==i) {
-              a_i[k] = a_j[k];
+              if constexpr (is_complex) {
+                a_i[k] = a_j[k].conj();
+              }
+              else {
+                a_i[k] = a_j[k];
+              }
             }
 
             dp += a_i[k] * a_j[k];
+
           });
 
           if (i<columns) {
             if (j==i)  {
-              p = dp;
-              ir_i_m_1 = ir;
+              if constexpr (is_complex) {
+                p = dp.r();
+              }
+              else {
+                p = dp;
+              }
+
               ir = sycl::rsqrt(p);
+              s_or_ir[j] = ir;
               r_a_result[r_index] = sycl::sqrt(p);
               r_index++;
             }
-            else if (j != columns) {
-              s[j] = dp/p;
+            else if (j != i-1) {
+              s_or_ir[j] = dp/p;
               r_a_result[r_index] = dp*ir;
               r_index++;
             }
           }
         }
 
-        int upper_j_bound = raw_latency + i;
-
         // Update loop indexes
-        if (j == upper_j_bound) {
+        if (j_count == raw_latency+1) {
           // If i reached an index at which the j inner loop doesn't have
           // enough time to write its result for the next i iteration,
           // some "dummy" iterations are introduced
-          j = i + 1;
-          i = i + 1;
+          j = i;
+          i++;
+          j_count = 0;
         } else {
-          j = j + 1;
+          j++;
+          j_count++;
         }
 
       }  // end of s
