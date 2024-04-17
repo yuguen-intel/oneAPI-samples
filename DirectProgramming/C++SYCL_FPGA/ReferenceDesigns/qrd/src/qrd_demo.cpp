@@ -10,7 +10,7 @@
 
 #include "qrd.hpp"
 
-#define DEBUG
+// #define DEBUG
 
 #ifdef FPGA_SIMULATOR
 #define ROWS_COMPONENT_V 8
@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
   // Get the number of times we want to repeat the decomposition
   // from the command line.
 #if defined(FPGA_EMULATOR)
-  int repetitions = argc > 1 ? atoi(argv[1]) : 16;
+  int repetitions = argc > 1 ? atoi(argv[1]) : 1;
 #elif defined(FPGA_SIMULATOR)
   int repetitions = argc > 1 ? atoi(argv[1]) : 1;
 #else

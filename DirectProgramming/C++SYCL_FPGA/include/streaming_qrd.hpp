@@ -14,10 +14,10 @@
 using namespace sycl;
 
 #define PRINTF(format, ...)                                    \
-  {                                                            \
-    static const CL_CONSTANT char _format[] = format;          \
-    ext::oneapi::experimental::printf(_format, ##__VA_ARGS__); \
-  }
+{                                                            \
+static const CL_CONSTANT char _format[] = format;          \
+ext::oneapi::experimental::printf(_format, ##__VA_ARGS__); \
+}
 
 
 namespace fpga_linalg {
@@ -67,14 +67,14 @@ template <typename T,       // The datatype for the computation
                     // order by rows (sweeps the rows by pipe size). Each read
                     // contains pipe_size samples from the same column, then the
                     // next read contains samples from the next column.
-          >
-struct StreamingQRD {
-  void operator()() const {
+              >
+              struct StreamingQRD {
+                void operator()() const {
     // Functional limitations
-    static_assert(rows >= columns,
-                  "only rectangular matrices with rows>=columns are supported");
-    static_assert(columns >= 4,
-                  "only matrices of size 4x4 and over are supported");
+                  static_assert(rows >= columns,
+                    "only rectangular matrices with rows>=columns are supported");
+                  static_assert(columns >= 4,
+                    "only matrices of size 4x4 and over are supported");
 
     /*
       This code implements a oneAPI optimized variation of the following
@@ -106,16 +106,16 @@ struct StreamingQRD {
 
     // Set the computation type to T or ac_complex<T> depending on the value
     // of is_complex
-    using TT = std::conditional_t<is_complex, ac_complex<T>, T>;
+                  using TT = std::conditional_t<is_complex, ac_complex<T>, T>;
 
     // Type used to store the matrices in the compute loop
-    using column_tuple = fpga_tools::NTuple<TT, rows>;
+                  using column_tuple = fpga_tools::NTuple<TT, rows>;
 
     // Number of upper-right elements in the R output matrix
-    constexpr int kRMatrixSize = columns * (columns + 1) / 2;
+                  constexpr int kRMatrixSize = columns * (columns + 1) / 2;
 
     // Compute QRDs as long as matrices are given as inputs
-    while (1) {
+                  while (1) {
       // Three copies of the full matrix, so that each matrix has a single
       // load and a single store.
       // a_load is the initial matrix received from the pipe
@@ -123,13 +123,13 @@ struct StreamingQRD {
       // q_result is a copy of a_compute and is used to send the final output
 
       // Break memories up to store 4 complex numbers (32 bytes) per bank
-      constexpr short kBankwidth = pipe_size * sizeof(TT);
-      constexpr unsigned short kNumBanks = rows / pipe_size;
+                    constexpr short kBankwidth = pipe_size * sizeof(TT);
+                    constexpr unsigned short kNumBanks = rows / pipe_size;
 
       // When specifying numbanks for a memory, it must be a power of 2.
       // Unused banks will be automatically optimized away.
-      constexpr short kNumBanksNextPow2 =
-          fpga_tools::Pow2(fpga_tools::CeilLog2(kNumBanks));
+                    constexpr short kNumBanksNextPow2 =
+                    fpga_tools::Pow2(fpga_tools::CeilLog2(kNumBanks));
 
       [[intel::numbanks(kNumBanksNextPow2)]]  // NO-FORMAT: Attribute
       [[intel::bankwidth(kBankwidth)]]        // NO-FORMAT: Attribute
@@ -150,7 +150,7 @@ struct StreamingQRD {
       constexpr int kLoopIter = kLoopIterPerColumn * columns;
       // Size in bits of the loop iterator over kLoopIter iterations
       constexpr int kLoopIterBitSize =
-          fpga_tools::BitsForMaxValue<kLoopIter + 1>();
+      fpga_tools::BitsForMaxValue<kLoopIter + 1>();
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (ac_int<kLoopIterBitSize, false> li_a = 0; li_a < kLoopIter; li_a++) {
@@ -172,14 +172,14 @@ struct StreamingQRD {
             if (write_idx == k) {
               if constexpr (k * pipe_size + t < rows) {
                 a_load[a_col_index].template get<k * pipe_size + t>() =
-                    pipe_read.template get<t>();
+                pipe_read.template get<t>();
               }
             }
 
             // Delay data signals to create a vine-based data distribution
             // to lower signal fanout.
             pipe_read.template get<t>() =
-                sycl::ext::intel::fpga_reg(pipe_read.template get<t>());
+            sycl::ext::intel::fpga_reg(pipe_read.template get<t>());
           });
 
           write_idx = sycl::ext::intel::fpga_reg(write_idx);
@@ -188,149 +188,120 @@ struct StreamingQRD {
 
       // Compute the QR Decomposition
 
+      constexpr int kAlwaysExtraIterations = raw_latency>columns;
+      constexpr int kIterationCountAlwaysExtraIterations = (raw_latency+1)*(columns) + columns;
+      constexpr int kIterationCountNotAlwaysExtraIterations = columns*(columns+1)/2 + columns + raw_latency*(raw_latency+1)/2;
+      constexpr int kTotalIterations = kAlwaysExtraIterations ? kIterationCountAlwaysExtraIterations : kIterationCountNotAlwaysExtraIterations;
+
+      constexpr int kUpperBound = raw_latency+1;
+
       // Initialization of the i and j variables for the triangular loop
       int i = 0;
       int j = 0;
-      int j_count = 1;
-
-      constexpr int kTotalIterations = (raw_latency+1)*(columns) + columns;
+      int j_count = kAlwaysExtraIterations ? 1 : ((columns-raw_latency) > 0 ?   raw_latency -columns + 2 : 1);
 
       TT a_i_m_1[columns];
-
       TT a_i[columns];
 
       [[intel::fpga_memory]]
       TT s_or_ir[columns];
       
-      T p, ir, ir_i_m_1;
+      T p, ir;
 
       int r_index = 0;
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      [[intel::ivdep(raw_latency-1)]]      // NO-FORMAT: Attribute
+      [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
       for (int it = 0; it < kTotalIterations; it++) {
 
         // PRINTF("i: %d, j: %d\n", int(i), int(j));
 
-        if(j<columns){
+        TT mult_lhs[rows], mult_rhs[rows], add[rows];
+        TT mult_add[rows];
 
-          TT mult_lhs[rows];
-          TT mult_rhs[rows];
-          TT add[rows];
+        TT dp{0};
 
-          TT mult_add[rows];
+        fpga_tools::UnrolledLoop<rows>([&](auto k) {
 
-          TT dp{0};
+          TT a_j[rows];
+          if ((i <= 1) && (j < columns)) {
+            a_j[k] = a_load[j].template get<k>();
+          }
+          else if (j < columns) {
+            a_j[k] = a_compute[j].template get<k>();
+          }
+          else {
+            a_j[k] = 0;
+          }
 
-          fpga_tools::UnrolledLoop<rows>([&](auto k) {
+          if (j==i-1){
+            a_i_m_1[k] = a_j[k];
+          }
 
-            TT a_j[rows];
-            if ((i <= 1) && (j < columns)) {
-              a_j[k] = a_load[j].template get<k>();
+          mult_lhs[k] = (i > 0) ? a_i_m_1[k] : TT{0};
+          mult_rhs[k] = (i > 0) && (j<columns) ? s_or_ir[j] : TT{0};
+          add[k] = (i > 0) && (j != i-1) ? a_j[k] : TT{0};
+
+          mult_add[k] = mult_lhs[k] * mult_rhs[k] + add[k];
+
+          if (i > 0) {
+            if (j == i-1) {
+              q_a_result[i-1].template get<k>() = mult_add[k];
             }
             else if (j < columns) {
-              a_j[k] = a_compute[j].template get<k>();
-            }
-            else {
-              a_j[k] = 0;
-            }
-
-            TT s{0};
-            if ( (j==i-1) && (i>0)) {
-              if constexpr (is_complex) {
-                ir_i_m_1 = s_or_ir[j].r();
-              }
-              else {
-                ir_i_m_1 = s_or_ir[j];
-              }
-            }
-            else{
-              s = s_or_ir[j];
-            }
-
-            if (j==i-1){
-              a_i_m_1[k] = a_j[k];
-            }
-
-            if (i > 0) {
-              if (j == i-1){
-                mult_lhs[k] = a_i_m_1[k];
-                mult_rhs[k] = ir_i_m_1;
-                add[k] = 0;
-              }
-              else {
-                mult_lhs[k] = a_i_m_1[k];
-                mult_rhs[k] = -s;
-                add[k] = a_j[k];
-              }
-            }
-            else {
-                mult_lhs[k] = 0;
-                mult_rhs[k] = 0;
-                add[k] = 0;
-            }
-
-            if constexpr (is_complex) {
-              mult_add[k] = mult_lhs[k] * mult_rhs[k].conj() + add[k];
-            }
-            else {
-              mult_add[k] = mult_lhs[k] * mult_rhs[k] + add[k];
-            }
-
-
-            if (i > 0) {
-              if (j == i-1) {
-                q_a_result[i-1].template get<k>() = mult_add[k];
-              }
-              else {
-                a_compute[j].template get<k>() = mult_add[k];
-                a_j[k] = mult_add[k];
-              }
-            }
-
-            if (j==i) {
-              if constexpr (is_complex) {
-                a_i[k] = a_j[k].conj();
-              }
-              else {
-                a_i[k] = a_j[k];
-              }
-            }
-
-            dp += a_i[k] * a_j[k];
-
-          });
-
-          if (i<columns) {
-            if (j==i)  {
-              if constexpr (is_complex) {
-                p = dp.r();
-              }
-              else {
-                p = dp;
-              }
-
-              ir = sycl::rsqrt(p);
-              s_or_ir[j] = ir;
-              r_a_result[r_index] = sycl::sqrt(p);
-              r_index++;
-            }
-            else if (j != i-1) {
-              s_or_ir[j] = dp/p;
-              r_a_result[r_index] = dp*ir;
-              r_index++;
+              a_compute[j].template get<k>() = mult_add[k];
+              a_j[k] = mult_add[k];
             }
           }
+
+          if (j==i) {
+            if constexpr (is_complex) {
+              a_i[k] = a_j[k].conj();
+            }
+            else {
+              a_i[k] = a_j[k];
+            }
+          }
+
+          dp += a_j[k] * a_i[k];
+
+        });
+
+        TT s_ir_val;
+        TT r_val;
+        if (j==i)  {
+          if constexpr (is_complex) {
+            p = dp.r();
+          }
+          else {
+            p = dp;
+          }
+          ir = sycl::rsqrt(p);
+
+          s_ir_val = ir;
+          r_val = sycl::sqrt(p);
+        }
+        else if (j > i) {
+          s_ir_val = -dp/p;
+          r_val = dp*ir;
+        }
+
+        if ((j != i-1) && (j < columns)){
+          r_a_result[r_index] = r_val;
+          r_index++;
+          s_or_ir[j] = s_ir_val;
         }
 
         // Update loop indexes
-        if (j_count == raw_latency+1) {
-          // If i reached an index at which the j inner loop doesn't have
-          // enough time to write its result for the next i iteration,
-          // some "dummy" iterations are introduced
+        if (j_count == kUpperBound) {
           j = i;
+          if constexpr (kAlwaysExtraIterations) {
+            j_count = 0;
+          }
+          else {
+            j_count = (columns-i-raw_latency) > 0 ? i + raw_latency -columns + 2 : 0;
+          }
           i++;
-          j_count = 0;
         } else {
           j++;
           j_count++;
@@ -360,10 +331,10 @@ struct StreamingQRD {
           fpga_tools::UnrolledLoop<pipe_size>([&](auto k) {
             if constexpr (t * pipe_size + k < rows) {
               pipe_write.template get<k>() =
-                  get[t] ? q_a_result[li / kLoopIterPerColumn]
-                               .template get<t * pipe_size + k>()
-                         : sycl::ext::intel::fpga_reg(
-                               pipe_write.template get<k>());
+              get[t] ? q_a_result[li / kLoopIterPerColumn]
+              .template get<t * pipe_size + k>()
+              : sycl::ext::intel::fpga_reg(
+               pipe_write.template get<k>());
             }
           });
         });
