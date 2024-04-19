@@ -216,54 +216,51 @@ template <typename T,       // The datatype for the computation
 
         // PRINTF("i: %d, j: %d\n", int(i), int(j));
 
-        TT mult_lhs[rows], mult_rhs[rows], add[rows];
-        TT mult_add[rows];
-
         TT dp{0};
 
         fpga_tools::UnrolledLoop<rows>([&](auto k) {
 
-          TT a_j[rows];
+          TT a_j;
           if ((i <= 1) && (j < columns)) {
-            a_j[k] = a_load[j].template get<k>();
+            a_j = a_load[j].template get<k>();
           }
           else if (j < columns) {
-            a_j[k] = a_compute[j].template get<k>();
+            a_j = a_compute[j].template get<k>();
           }
           else {
-            a_j[k] = 0;
+            a_j = 0;
           }
 
           if (j==i-1){
-            a_i_m_1[k] = a_j[k];
+            a_i_m_1[k] = a_j;
           }
 
-          mult_lhs[k] = (i > 0) ? a_i_m_1[k] : TT{0};
-          mult_rhs[k] = (i > 0) && (j<columns) ? s_or_ir[j] : TT{0};
-          add[k] = (i > 0) && (j != i-1) ? a_j[k] : TT{0};
+          TT mult_lhs = (i > 0) ? a_i_m_1[k] : TT{0};
+          TT mult_rhs = (i > 0) && (j<columns) ? s_or_ir[j] : TT{0};
+          TT add = (i > 0) && (j != i-1) ? a_j : TT{0};
 
-          mult_add[k] = mult_lhs[k] * mult_rhs[k] + add[k];
+          TT mult_add = mult_lhs * mult_rhs + add;
 
           if (i > 0) {
             if (j == i-1) {
-              q_a_result[i-1].template get<k>() = mult_add[k];
+              q_a_result[i-1].template get<k>() = mult_add;
             }
             else if (j < columns) {
-              a_compute[j].template get<k>() = mult_add[k];
-              a_j[k] = mult_add[k];
+              a_compute[j].template get<k>() = mult_add;
+              a_j = mult_add;
             }
           }
 
           if (j==i) {
             if constexpr (is_complex) {
-              a_i[k] = a_j[k].conj();
+              a_i[k] = a_j.conj();
             }
             else {
-              a_i[k] = a_j[k];
+              a_i[k] = a_j;
             }
           }
 
-          dp += a_j[k] * a_i[k];
+          dp += a_j * a_i[k];
 
         });
 
