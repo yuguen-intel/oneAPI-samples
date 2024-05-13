@@ -190,15 +190,15 @@ template <typename T,       // The datatype for the computation
 
       constexpr int kAlwaysExtraIterations = raw_latency>columns;
       constexpr int kIterationCountAlwaysExtraIterations = (raw_latency+1)*(columns) + columns;
-      constexpr int kIterationCountNotAlwaysExtraIterations = columns*(columns+1)/2 + columns + raw_latency*(raw_latency+1)/2;
+      constexpr int kIterationCountNotAlwaysExtraIterations = columns*(columns+1)/2 + columns + raw_latency*(raw_latency-1)/2;
       constexpr int kTotalIterations = kAlwaysExtraIterations ? kIterationCountAlwaysExtraIterations : kIterationCountNotAlwaysExtraIterations;
 
-      constexpr int kUpperBound = raw_latency+1;
+      constexpr int kUpperBound = raw_latency;
 
       // Initialization of the i and j variables for the triangular loop
       int i = 0;
       int j = 0;
-      int j_count = kAlwaysExtraIterations ? 1 : ((columns-raw_latency) > 0 ?   raw_latency -columns + 2 : 1);
+      int j_count = kAlwaysExtraIterations ? 0 : raw_latency -columns + 1;
 
       TT a_i_m_1[columns];
       TT a_i[columns];
@@ -296,7 +296,7 @@ template <typename T,       // The datatype for the computation
             j_count = 0;
           }
           else {
-            j_count = (columns-i-raw_latency) > 0 ? i + raw_latency -columns + 2 : 0;
+            j_count = (columns-i-raw_latency) > 0 ? i + raw_latency -columns + 1 : 0;
           }
           i++;
         } else {
@@ -344,4 +344,4 @@ template <typename T,       // The datatype for the computation
 
 }  // namespace fpga_linalg
 
-#endif /* __STREAMING_QRD_HPP__ */
+#endif /* __STREAMING_QRD_HPP__ 
