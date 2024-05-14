@@ -189,7 +189,7 @@ template <typename T,       // The datatype for the computation
       // Compute the QR Decomposition
 
       constexpr int kAlwaysExtraIterations = raw_latency>columns;
-      constexpr int kIterationCountAlwaysExtraIterations = (raw_latency+1)*(columns) + columns;
+      constexpr int kIterationCountAlwaysExtraIterations = (raw_latency + 1) * columns;
       constexpr int kIterationCountNotAlwaysExtraIterations = columns*(columns+1)/2 + columns + raw_latency*(raw_latency-1)/2;
       constexpr int kTotalIterations = kAlwaysExtraIterations ? kIterationCountAlwaysExtraIterations : kIterationCountNotAlwaysExtraIterations;
 
@@ -198,7 +198,7 @@ template <typename T,       // The datatype for the computation
       // Initialization of the i and j variables for the triangular loop
       int i = 0;
       int j = 0;
-      int j_count = kAlwaysExtraIterations ? 0 : raw_latency -columns + 1;
+      int j_count = kAlwaysExtraIterations ? 1 : raw_latency -columns + 1;
 
       TT a_i_m_1[columns];
       TT a_i[columns];
@@ -236,7 +236,7 @@ template <typename T,       // The datatype for the computation
           }
 
           TT mult_lhs = (i > 0) ? a_i_m_1[k] : TT{0};
-          TT mult_rhs = (i > 0) && (j<columns) ? s_or_ir[j] : TT{0};
+          TT mult_rhs = (i > 0) && (j < columns) ? s_or_ir[j] : TT{0};
           TT add = (i > 0) && (j != i-1) ? a_j : TT{0};
 
           TT mult_add = mult_lhs * mult_rhs + add;
@@ -344,4 +344,4 @@ template <typename T,       // The datatype for the computation
 
 }  // namespace fpga_linalg
 
-#endif /* __STREAMING_QRD_HPP__ 
+#endif /* __STREAMING_QRD_HPP__ */
