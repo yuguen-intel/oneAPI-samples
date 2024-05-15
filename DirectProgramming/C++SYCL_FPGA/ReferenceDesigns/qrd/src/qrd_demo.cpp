@@ -10,7 +10,7 @@
 
 #include "qrd.hpp"
 
-// #define DEBUG
+#define DEBUG
 
 #ifdef FPGA_SIMULATOR
 #define ROWS_COMPONENT_V 8
@@ -108,9 +108,9 @@ int main(int argc, char *argv[]) {
   }
 
 #if defined(FPGA_SIMULATOR)
-  constexpr size_t kMatricesToDecompose = 1;
+  constexpr size_t kMatricesToDecompose = 2;
 #else
-  constexpr size_t kMatricesToDecompose = 1;
+  constexpr size_t kMatricesToDecompose = 2;
 #endif
 
   try {
@@ -214,10 +214,11 @@ int main(int argc, char *argv[]) {
     float q_ortho_error_threshold = pow(2.0, -9);
 
     // Check Q and R matrices
-    std::cout << "Verifying results...";
+    std::cout << "Verifying results..." << std::endl;
     for(int matrix_index = 0; matrix_index < kMatricesToDecompose;
                                                                 matrix_index++){
-
+      std::cout << "Checking matrix " << matrix_index << std::endl;
+    
       // keep track of Q and R element indexes
       size_t r_idx = 0;
       size_t q_idx = 0;
