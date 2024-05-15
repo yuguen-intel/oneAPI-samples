@@ -56,8 +56,12 @@ void QRDecompositionImpl(
 
   // Pipes to communicate the A, Q and R matrices between kernels
   using AMatrixPipe = sycl::ext::intel::pipe<APipe, PipeType, 3>;
-  using QMatrixPipe = sycl::ext::intel::pipe<QPipe, PipeType, 3>;
-  using RMatrixPipe = sycl::ext::intel::pipe<RPipe, TT,
+  using BMatrixPipe = sycl::ext::intel::pipe<APipe, PipeType, 3>;
+  using QAMatrixPipe = sycl::ext::intel::pipe<QPipe, PipeType, 3>;
+  using QBMatrixPipe = sycl::ext::intel::pipe<QPipe, PipeType, 3>;
+  using RAMatrixPipe = sycl::ext::intel::pipe<RPipe, TT,
+                                                  kNumElementsPerDDRBurst * 4>;
+  using RBMatrixPipe = sycl::ext::intel::pipe<RPipe, TT,
                                                   kNumElementsPerDDRBurst * 4>;
 
   // Allocate FPGA DDR memory.
@@ -79,7 +83,7 @@ void QRDecompositionImpl(
   q.submit([&](sycl::handler &h) {
     h.single_task<QRDDDRToLocalMem>([=]() [[intel::kernel_args_restrict]] {
       MatrixReadFromDDRToPipe<TT, rows, columns, kNumElementsPerDDRBurst,
-                            AMatrixPipe>(a_device, matrix_count, repetitions);
+                            AMatrixPipe, BMatrixPipe>(a_device, matrix_count, repetitions);
     });
   });
 
@@ -89,14 +93,14 @@ void QRDecompositionImpl(
   q.single_task<QRD>(
       fpga_linalg::StreamingQRD<T, is_complex, rows, columns, raw_latency,
                    kNumElementsPerDDRBurst,
-                   AMatrixPipe, QMatrixPipe, RMatrixPipe>());
+                   AMatrixPipe, BMatrixPipe, QAMatrixPipe, QBMatrixPipe, RAMatrixPipe, RBMatrixPipe>());
 
   auto q_event = q.single_task<QRDLocalMemToDDRQ>([=
                                     ]() [[intel::kernel_args_restrict]] {
     // Read the Q matrix from the QMatrixPipe pipe and copy it to the
     // FPGA DDR
     MatrixReadPipeToDDR<TT, rows, columns, kNumElementsPerDDRBurst,
-                        QMatrixPipe>(q_device, matrix_count, repetitions);
+                        QAMatrixPipe, QBMatrixPipe>(q_device, matrix_count, repetitions);
   });
 
   auto r_event = q.single_task<QRDLocalMemToDDRR>([=
@@ -122,10 +126,12 @@ void QRDecompositionImpl(
          repetition_index++) {
       
       [[intel::loop_coalesce(2)]]  // NO-FORMAT: Attribute
-      for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++) {
+      for (int matrix_index = 0; matrix_index < matrix_count; matrix_index+=2) {
         for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
           vector_ptr_located[matrix_index * kRMatrixSize + r_idx] =
-              RMatrixPipe::read();
+              RAMatrixPipe::read();
+          vector_ptr_located[(matrix_index+1) * kRMatrixSize + r_idx] =
+              RBMatrixPipe::read();
         }  // end of r_idx
       }    // end of repetition_index
     }      // end of li

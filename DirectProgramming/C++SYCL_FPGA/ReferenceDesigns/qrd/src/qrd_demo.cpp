@@ -10,7 +10,7 @@
 
 #include "qrd.hpp"
 
-#define DEBUG
+// #define DEBUG
 
 #ifdef FPGA_SIMULATOR
 #define ROWS_COMPONENT_V 8
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
 #if defined(FPGA_SIMULATOR)
   constexpr size_t kMatricesToDecompose = 2;
 #else
-  constexpr size_t kMatricesToDecompose = 2;
+  constexpr size_t kMatricesToDecompose = 8;
 #endif
 
   try {

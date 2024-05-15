@@ -55,9 +55,17 @@ template <typename T,       // The datatype for the computation
                             // operation
           typename AIn,     // A matrix input pipe, receive pipe_size
                             // elements from the pipe with each read
-          typename QOut,    // Q matrix output pipe, send pipe_size
+          typename BIn,     // A matrix input pipe, receive pipe_size
+                            // elements from the pipe with each read
+          typename QAOut,    // Q matrix output pipe, send pipe_size
                             // elements to the pipe with each write
-          typename ROut,    // R matrix output pipe, send pipe_size
+          typename QBOut,    // Q matrix output pipe, send pipe_size
+                            // elements to the pipe with each write
+          typename RAOut,    // R matrix output pipe, send pipe_size
+                            // elements to the pipe with each write.
+                            // Only upper-right elements of R are
+                            // sent in row order, starting with row 0.
+          typename RBOut,    // R matrix output pipe, send pipe_size
                             // elements to the pipe with each write.
                             // Only upper-right elements of R are
                             // sent in row order, starting with row 0.
@@ -68,13 +76,16 @@ template <typename T,       // The datatype for the computation
                     // contains pipe_size samples from the same column, then the
                     // next read contains samples from the next column.
               >
-              struct StreamingQRD {
-                void operator()() const {
+struct StreamingQRD {
+  void operator()() const {
     // Functional limitations
-                  static_assert(rows >= columns,
-                    "only rectangular matrices with rows>=columns are supported");
-                  static_assert(columns >= 4,
-                    "only matrices of size 4x4 and over are supported");
+    static_assert(rows >= columns,
+      "only rectangular matrices with rows>=columns are supported");
+    static_assert(columns >= 4,
+      "only matrices of size 4x4 and over are supported");
+
+    static_assert(raw_latency >= 2*columns,
+      "raw_latency must be at least two times the size of the matrix for interleaving to work");
 
     /*
       This code implements a oneAPI optimized variation of the following
@@ -106,16 +117,16 @@ template <typename T,       // The datatype for the computation
 
     // Set the computation type to T or ac_complex<T> depending on the value
     // of is_complex
-                  using TT = std::conditional_t<is_complex, ac_complex<T>, T>;
+    using TT = std::conditional_t<is_complex, ac_complex<T>, T>;
 
     // Type used to store the matrices in the compute loop
-                  using column_tuple = fpga_tools::NTuple<TT, rows>;
+    using column_tuple = fpga_tools::NTuple<TT, rows>;
 
     // Number of upper-right elements in the R output matrix
-                  constexpr int kRMatrixSize = columns * (columns + 1) / 2;
+    constexpr int kRMatrixSize = columns * (columns + 1) / 2;
 
     // Compute QRDs as long as matrices are given as inputs
-                  while (1) {
+    while (1) {
       // Three copies of the full matrix, so that each matrix has a single
       // load and a single store.
       // a_load is the initial matrix received from the pipe
@@ -123,13 +134,13 @@ template <typename T,       // The datatype for the computation
       // q_result is a copy of a_compute and is used to send the final output
 
       // Break memories up to store 4 complex numbers (32 bytes) per bank
-                    constexpr short kBankwidth = pipe_size * sizeof(TT);
-                    constexpr unsigned short kNumBanks = rows / pipe_size;
+      constexpr short kBankwidth = pipe_size * sizeof(TT);
+      constexpr unsigned short kNumBanks = rows / pipe_size;
 
       // When specifying numbanks for a memory, it must be a power of 2.
       // Unused banks will be automatically optimized away.
-                    constexpr short kNumBanksNextPow2 =
-                    fpga_tools::Pow2(fpga_tools::CeilLog2(kNumBanks));
+      constexpr short kNumBanksNextPow2 =
+      fpga_tools::Pow2(fpga_tools::CeilLog2(kNumBanks));
 
       [[intel::numbanks(kNumBanksNextPow2)]]  // NO-FORMAT: Attribute
       [[intel::bankwidth(kBankwidth)]]        // NO-FORMAT: Attribute
@@ -194,7 +205,7 @@ template <typename T,       // The datatype for the computation
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (ac_int<kLoopIterBitSize, false> li_b = 0; li_b < kLoopIter; li_b++) {
-        fpga_tools::NTuple<TT, pipe_size> pipe_read = AIn::read();
+        fpga_tools::NTuple<TT, pipe_size> pipe_read = BIn::read();
 
         int write_idx;
         int a_col_index;
@@ -305,7 +316,7 @@ template <typename T,       // The datatype for the computation
             }
 
             TT mult_lhs = (i > 0) ? (compute_a ? a_i_m_1[k] : b_i_m_1[k]) : TT{0};
-            TT mult_rhs = (i > 0) ? (compute_a ? s_or_ir_a[adjusted_j] : s_or_ir_a[adjusted_j]) : TT{0};
+            TT mult_rhs = (i > 0) ? (compute_a ? s_or_ir_a[adjusted_j] : s_or_ir_b[adjusted_j]) : TT{0};
             TT add = (i > 0) && (adjusted_j != i-1) ? m_j : TT{0};
 
             TT mult_add = mult_lhs * mult_rhs + add;
@@ -358,6 +369,7 @@ template <typename T,       // The datatype for the computation
           TT s_ir_val;
           TT r_val;
           if (adjusted_j == i)  {
+            T p;
             if (compute_a) {
               if constexpr (is_complex) {
                 p_a = dp.r();
@@ -365,9 +377,7 @@ template <typename T,       // The datatype for the computation
               else {
                 p_a = dp;
               }
-              ir_a = sycl::rsqrt(p_a);
-              s_ir_val = ir_a;
-              r_val = sycl::sqrt(p_a);
+              p = p_a;
             }
             else {
               if constexpr (is_complex) {
@@ -376,32 +386,49 @@ template <typename T,       // The datatype for the computation
               else {
                 p_b = dp;
               }
-              ir_b = sycl::rsqrt(p_b);
+              p = p_b;
+            }
+
+            T rsqrt = sycl::rsqrt(p);
+            T sqrt = sycl::sqrt(p);
+
+            if (compute_a) {
+              ir_a = rsqrt;
+              s_ir_val = ir_a;
+              r_val = sqrt;
+            }
+            else {
+              ir_b = rsqrt;
               s_ir_val = ir_b;
-              r_val = sycl::sqrt(p_b);
+              r_val = sqrt;              
             }
           }
           else if (adjusted_j > i) {
+            T p;
+            T ir;
             if (compute_a) {
-              s_ir_val = -dp/p_a;
-              r_val = dp*ir_a;
+              p = p_a;
+              ir = ir_a;
             }
             else {
-              s_ir_val = -dp/p_b;
-              r_val = dp*ir_b;
+              p = p_b;
+              ir = ir_b;
             }
+
+            s_ir_val = -dp/p;
+            r_val = dp*ir;
           }
 
           if (adjusted_j != i-1){
             if (compute_a) {
               r_a_result[r_index_a] = r_val;
               r_index_a++;
-              s_or_ir_a[j] = s_ir_val;
+              s_or_ir_a[adjusted_j] = s_ir_val;
             }
             else {
               r_b_result[r_index_b] = r_val;
               r_index_b++;
-              s_or_ir_b[j] = s_ir_val;              
+              s_or_ir_b[adjusted_j] = s_ir_val;              
             }
           }
         }
@@ -428,12 +455,12 @@ template <typename T,       // The datatype for the computation
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        ROut::write(r_a_result[r_idx]);
+        RAOut::write(r_a_result[r_idx]);
       }
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        ROut::write(r_b_result[r_idx]);
+        RBOut::write(r_b_result[r_idx]);
       }
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
@@ -457,7 +484,7 @@ template <typename T,       // The datatype for the computation
             }
           });
         });
-        QOut::write(pipe_write);
+        QAOut::write(pipe_write);
       }
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
@@ -481,7 +508,7 @@ template <typename T,       // The datatype for the computation
             }
           });
         });
-        QOut::write(pipe_write);
+        QBOut::write(pipe_write);
       }
 
     }  // end of while(1)
