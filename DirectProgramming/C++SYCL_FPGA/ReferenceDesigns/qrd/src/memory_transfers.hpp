@@ -15,8 +15,7 @@ template <typename TT,           // Datatype of the elements of the matrix
           int rows,              // Number of rows of the matrix
           int columns,           // Number of columns of the matrix
           int num_elem_per_bank, // Number of TT elements per DDR burst access
-          typename AMatrixPipe,    // Output matrix pipe
-          typename BMatrixPipe    // Output matrix pipe
+          typename MatrixPipe    // Output matrix pipe
           >
 void MatrixReadFromDDRToPipe(
     TT* matrix_ptr,  // Input matrix pointer
@@ -53,7 +52,7 @@ void MatrixReadFromDDRToPipe(
   // Repeatedly read matrix_count matrices from DDR and sends them to the pipe
   for (int repetition = 0; repetition < repetitions; repetition++){
 
-    for (int matrix_index = 0; matrix_index < matrix_count; matrix_index+=2){
+    for (short matrix_index = 0; matrix_index < matrix_count; matrix_index+=2){
 
       // Keep track of the current element index in the matrix
       // Only useful in the case of kIncompleteBurst
@@ -69,8 +68,7 @@ void MatrixReadFromDDRToPipe(
                               == kLoopIterPerColumn - 1;
         }
 
-        fpga_tools::NTuple<TT, num_elem_per_bank> ddr_read_a;
-        fpga_tools::NTuple<TT, num_elem_per_bank> ddr_read_b;
+        fpga_tools::NTuple<TT, num_elem_per_bank*2> ddr_read;
 
         // Perform the DDR burst read of num_elem_per_bank elements
         fpga_tools::UnrolledLoop<num_elem_per_bank>([&](auto k) {
@@ -84,12 +82,12 @@ void MatrixReadFromDDRToPipe(
             // Only perform the DDR reads that are relevant (and don't access a
             // memory address that may be beyond the matrix last address)
             if (!out_of_bounds) {
-              ddr_read_a.template get<k>() = matrix_ptr_located
+              ddr_read.template get<k>() = matrix_ptr_located
                                   [matrix_index * kMatrixSize + load_index + k];
             }
           }
           else{
-            ddr_read_a.template get<k>() = matrix_ptr_located
+            ddr_read.template get<k>() = matrix_ptr_located
                 [matrix_index * kMatrixSize + (int)(li)*num_elem_per_bank + k];
 
           }
@@ -107,12 +105,12 @@ void MatrixReadFromDDRToPipe(
             // Only perform the DDR reads that are relevant (and don't access a
             // memory address that may be beyond the matrix last address)
             if (!out_of_bounds) {
-              ddr_read_b.template get<k>() = matrix_ptr_located
+              ddr_read.template get<k+num_elem_per_bank>() = matrix_ptr_located
                                   [(matrix_index +1) * kMatrixSize + load_index + k];
             }
           }
           else{
-            ddr_read_b.template get<k>() = matrix_ptr_located
+            ddr_read.template get<k+num_elem_per_bank>() = matrix_ptr_located
                 [(matrix_index+1) * kMatrixSize + (int)(li)*num_elem_per_bank + k];
 
           }
@@ -125,8 +123,7 @@ void MatrixReadFromDDRToPipe(
                                             num_elem_per_bank;
         }
 
-        AMatrixPipe::write(ddr_read_a);
-        BMatrixPipe::write(ddr_read_b);
+        MatrixPipe::write(ddr_read);
       }  // end of li
 
     } // end of matrix_index
@@ -143,8 +140,8 @@ template <typename TT,           // Datatype of the elements of the matrix
           int rows,              // Number of rows of the matrix
           int columns,           // Number of columns of the matrix
           int num_elem_per_bank, // Number of TT elements per DDR burst access
-          typename AMatrixPipe,    // Input matrix
-          typename BMatrixPipe    // Input matrix
+          typename MatrixPipe    // Input matrix
+          // typename BMatrixPipe    // Input matrix
           >
 void MatrixReadPipeToDDR(
     TT* matrix_ptr,  // Output matrix pointer
@@ -181,7 +178,7 @@ void MatrixReadPipeToDDR(
   // Repeatedly read matrix_count matrices from the pipe and write them to DDR
   for (int repetition = 0; repetition < repetitions; repetition++){
 
-    for (int matrix_index = 0; matrix_index < matrix_count; matrix_index+=2){
+    for (short matrix_index = 0; matrix_index < matrix_count; matrix_index+=2){
       // Keep track of the current element index in the output matrix
       // Only useful in the case of kIncompleteBurst
       int write_idx = 0;
@@ -189,10 +186,8 @@ void MatrixReadPipeToDDR(
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep]]  // NO-FORMAT: Attribute
       for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
-        fpga_tools::NTuple<TT, num_elem_per_bank> pipe_read_a =
-                                                            AMatrixPipe::read();
-        fpga_tools::NTuple<TT, num_elem_per_bank> pipe_read_b =
-                                                            BMatrixPipe::read();
+        fpga_tools::NTuple<TT, num_elem_per_bank*2> pipe_read =
+                                                            MatrixPipe::read();
 
         bool last_burst_of_col;
         if constexpr (kIncompleteBurst){
@@ -212,12 +207,12 @@ void MatrixReadPipeToDDR(
             // memory address that may be beyond the buffer last address)
             if (!out_of_bounds) {
               matrix_ptr_located[matrix_index * kMatrixSize + write_idx + k] =
-                                                    pipe_read_a.template get<k>();
+                                                    pipe_read.template get<k>();
             }
           }
           else{
             matrix_ptr_located[matrix_index * kMatrixSize
-              + int(li) * num_elem_per_bank + k] = pipe_read_a.template get<k>();
+              + int(li) * num_elem_per_bank + k] = pipe_read.template get<k>();
           }
 
         });
@@ -233,15 +228,16 @@ void MatrixReadPipeToDDR(
             // memory address that may be beyond the buffer last address)
             if (!out_of_bounds) {
               matrix_ptr_located[(matrix_index+1) * kMatrixSize + write_idx + k] =
-                                                    pipe_read_b.template get<k>();
+                                                    pipe_read.template get<k+num_elem_per_bank>();
             }
           }
           else{
             matrix_ptr_located[(matrix_index+1) * kMatrixSize
-              + int(li) * num_elem_per_bank + k] = pipe_read_b.template get<k>();
+              + int(li) * num_elem_per_bank + k] = pipe_read.template get<k+num_elem_per_bank>();
           }
 
         });
+
 
         if constexpr (kIncompleteBurst){
           // Update the current element index in the write buffer according

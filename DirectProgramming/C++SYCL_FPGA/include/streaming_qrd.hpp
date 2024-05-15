@@ -55,17 +55,9 @@ template <typename T,       // The datatype for the computation
                             // operation
           typename AIn,     // A matrix input pipe, receive pipe_size
                             // elements from the pipe with each read
-          typename BIn,     // A matrix input pipe, receive pipe_size
-                            // elements from the pipe with each read
-          typename QAOut,    // Q matrix output pipe, send pipe_size
+          typename QOut,    // Q matrix output pipe, send pipe_size
                             // elements to the pipe with each write
-          typename QBOut,    // Q matrix output pipe, send pipe_size
-                            // elements to the pipe with each write
-          typename RAOut,    // R matrix output pipe, send pipe_size
-                            // elements to the pipe with each write.
-                            // Only upper-right elements of R are
-                            // sent in row order, starting with row 0.
-          typename RBOut,    // R matrix output pipe, send pipe_size
+          typename ROut,    // R matrix output pipe, send pipe_size
                             // elements to the pipe with each write.
                             // Only upper-right elements of R are
                             // sent in row order, starting with row 0.
@@ -171,7 +163,7 @@ struct StreamingQRD {
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (ac_int<kLoopIterBitSize, false> li_a = 0; li_a < kLoopIter; li_a++) {
-        fpga_tools::NTuple<TT, pipe_size> pipe_read = AIn::read();
+        fpga_tools::NTuple<TT, pipe_size*2> pipe_read = AIn::read();
 
         int write_idx;
         int a_col_index;
@@ -190,40 +182,8 @@ struct StreamingQRD {
               if constexpr (k * pipe_size + t < rows) {
                 a_load[a_col_index].template get<k * pipe_size + t>() =
                 pipe_read.template get<t>();
-              }
-            }
-
-            // Delay data signals to create a vine-based data distribution
-            // to lower signal fanout.
-            pipe_read.template get<t>() =
-            sycl::ext::intel::fpga_reg(pipe_read.template get<t>());
-          });
-
-          write_idx = sycl::ext::intel::fpga_reg(write_idx);
-        });
-      }
-
-      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li_b = 0; li_b < kLoopIter; li_b++) {
-        fpga_tools::NTuple<TT, pipe_size> pipe_read = BIn::read();
-
-        int write_idx;
-        int a_col_index;
-        if constexpr (k_column_order) {
-          write_idx = li_b % kLoopIterPerColumn;
-          a_col_index = li_b / kLoopIterPerColumn;
-        } else {
-          write_idx = li_b / columns;
-          a_col_index = li_b % columns;
-        }
-        // int write_idx = li_b / columns;
-
-        fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
-          fpga_tools::UnrolledLoop<pipe_size>([&](auto t) {
-            if (write_idx == k) {
-              if constexpr (k * pipe_size + t < rows) {
                 b_load[a_col_index].template get<k * pipe_size + t>() =
-                pipe_read.template get<t>();
+                pipe_read.template get<t+pipe_size>();
               }
             }
 
@@ -231,12 +191,13 @@ struct StreamingQRD {
             // to lower signal fanout.
             pipe_read.template get<t>() =
             sycl::ext::intel::fpga_reg(pipe_read.template get<t>());
+            pipe_read.template get<t+pipe_size>() =
+            sycl::ext::intel::fpga_reg(pipe_read.template get<t+pipe_size>());
           });
 
           write_idx = sycl::ext::intel::fpga_reg(write_idx);
         });
       }
-
 
       // Compute the QR Decomposition
       constexpr int kExtraIterationsForInterleaving = columns;
@@ -315,8 +276,16 @@ struct StreamingQRD {
               }
             }
 
+            TT s_or_ir;
+            if (compute_a) {
+              s_or_ir = s_or_ir_a[adjusted_j];
+            }
+            else {
+              s_or_ir = s_or_ir_b[adjusted_j];
+            }
+
             TT mult_lhs = (i > 0) ? (compute_a ? a_i_m_1[k] : b_i_m_1[k]) : TT{0};
-            TT mult_rhs = (i > 0) ? (compute_a ? s_or_ir_a[adjusted_j] : s_or_ir_b[adjusted_j]) : TT{0};
+            TT mult_rhs = (i > 0) ? s_or_ir : TT{0};
             TT add = (i > 0) && (adjusted_j != i-1) ? m_j : TT{0};
 
             TT mult_add = mult_lhs * mult_rhs + add;
@@ -455,13 +424,9 @@ struct StreamingQRD {
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        RAOut::write(r_a_result[r_idx]);
+        ROut::write(std::pair<TT, TT>{r_a_result[r_idx], r_b_result[r_idx]});
       }
 
-      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        RBOut::write(r_b_result[r_idx]);
-      }
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
@@ -472,43 +437,28 @@ struct StreamingQRD {
           column_iter = sycl::ext::intel::fpga_reg(column_iter);
         });
 
-        fpga_tools::NTuple<TT, pipe_size> pipe_write;
+        fpga_tools::NTuple<TT, pipe_size*2> pipe_write;
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto t) {
           fpga_tools::UnrolledLoop<pipe_size>([&](auto k) {
             if constexpr (t * pipe_size + k < rows) {
-              pipe_write.template get<k>() =
-              get[t] ? q_a_result[li / kLoopIterPerColumn]
-              .template get<t * pipe_size + k>()
-              : sycl::ext::intel::fpga_reg(
-               pipe_write.template get<k>());
-            }
-          });
-        });
-        QAOut::write(pipe_write);
-      }
+              auto q = q_a_result[li / kLoopIterPerColumn].template get<t * pipe_size + k>();
+              if (get[t]) {
+                pipe_write.template get<k>() = q;
+              }
+              else {
+                pipe_write.template get<k>() = sycl::ext::intel::fpga_reg(pipe_write.template get<k>());
 
-      [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
-        int column_iter = li % kLoopIterPerColumn;
-        bool get[kLoopIterPerColumn];
-        fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
-          get[k] = column_iter == k;
-          column_iter = sycl::ext::intel::fpga_reg(column_iter);
-        });
-
-        fpga_tools::NTuple<TT, pipe_size> pipe_write;
-        fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto t) {
-          fpga_tools::UnrolledLoop<pipe_size>([&](auto k) {
-            if constexpr (t * pipe_size + k < rows) {
-              pipe_write.template get<k>() =
+              }
+              
+              pipe_write.template get<k+pipe_size>() =
               get[t] ? q_b_result[li / kLoopIterPerColumn]
               .template get<t * pipe_size + k>()
               : sycl::ext::intel::fpga_reg(
-               pipe_write.template get<k>());
+               pipe_write.template get<k+pipe_size>());
             }
           });
         });
-        QBOut::write(pipe_write);
+        QOut::write(pipe_write);
       }
 
     }  // end of while(1)

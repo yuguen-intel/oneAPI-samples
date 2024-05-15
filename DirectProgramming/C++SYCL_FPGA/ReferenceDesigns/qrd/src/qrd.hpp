@@ -52,16 +52,16 @@ void QRDecompositionImpl(
   constexpr int kRMatrixSize = columns * (columns + 1) / 2;
   constexpr int kNumElementsPerDDRBurst = is_complex ? 4 : 8;
 
-  using PipeType = fpga_tools::NTuple<TT, kNumElementsPerDDRBurst>;
+  // using PipeType = fpga_tools::NTuple<TT, kNumElementsPerDDRBurst>;
+  using PipeTypeM = fpga_tools::NTuple<TT, kNumElementsPerDDRBurst*2>;
 
   // Pipes to communicate the A, Q and R matrices between kernels
-  using AMatrixPipe = sycl::ext::intel::pipe<APipe, PipeType, 3>;
-  using BMatrixPipe = sycl::ext::intel::pipe<APipe, PipeType, 3>;
-  using QAMatrixPipe = sycl::ext::intel::pipe<QPipe, PipeType, 3>;
-  using QBMatrixPipe = sycl::ext::intel::pipe<QPipe, PipeType, 3>;
-  using RAMatrixPipe = sycl::ext::intel::pipe<RPipe, TT,
-                                                  kNumElementsPerDDRBurst * 4>;
-  using RBMatrixPipe = sycl::ext::intel::pipe<RPipe, TT,
+  using MatrixPipe = sycl::ext::intel::pipe<APipe, PipeTypeM, 3>;
+  using QMatrixPipe = sycl::ext::intel::pipe<QPipe, PipeTypeM, 3>;
+  // using QBMatrixPipe = sycl::ext::intel::pipe<QPipe, PipeType, 3>;
+  // using RAMatrixPipe = sycl::ext::intel::pipe<RPipe, TT,
+  //                                                 kNumElementsPerDDRBurst * 4>;
+  using RMatrixPipe = sycl::ext::intel::pipe<RPipe, std::pair<TT, TT>,
                                                   kNumElementsPerDDRBurst * 4>;
 
   // Allocate FPGA DDR memory.
@@ -83,7 +83,7 @@ void QRDecompositionImpl(
   q.submit([&](sycl::handler &h) {
     h.single_task<QRDDDRToLocalMem>([=]() [[intel::kernel_args_restrict]] {
       MatrixReadFromDDRToPipe<TT, rows, columns, kNumElementsPerDDRBurst,
-                            AMatrixPipe, BMatrixPipe>(a_device, matrix_count, repetitions);
+                            MatrixPipe>(a_device, matrix_count, repetitions);
     });
   });
 
@@ -93,15 +93,53 @@ void QRDecompositionImpl(
   q.single_task<QRD>(
       fpga_linalg::StreamingQRD<T, is_complex, rows, columns, raw_latency,
                    kNumElementsPerDDRBurst,
-                   AMatrixPipe, BMatrixPipe, QAMatrixPipe, QBMatrixPipe, RAMatrixPipe, RBMatrixPipe>());
+                   MatrixPipe, QMatrixPipe, RMatrixPipe>());
 
   auto q_event = q.single_task<QRDLocalMemToDDRQ>([=
                                     ]() [[intel::kernel_args_restrict]] {
     // Read the Q matrix from the QMatrixPipe pipe and copy it to the
     // FPGA DDR
     MatrixReadPipeToDDR<TT, rows, columns, kNumElementsPerDDRBurst,
-                        QAMatrixPipe, QBMatrixPipe>(q_device, matrix_count, repetitions);
+                        QMatrixPipe>(q_device, matrix_count, repetitions);
   });
+
+//   auto r_event = q.single_task<QRDLocalMemToDDRR>([=
+//                                     ]() [[intel::kernel_args_restrict]] {
+//     // Read the R matrix from the RMatrixPipe pipe and copy it to the
+//     // FPGA DDR
+
+// #if defined (IS_BSP)
+//     // When targeting a BSP, we instruct the compiler that this pointer
+//     // lives on the device.
+//     // Knowing this, the compiler won't generate hardware to
+//     // potentially get data from the host.
+//     sycl::device_ptr<TT> vector_ptr_located(r_device);
+// #else
+//     // Device pointers are not supported when targeting an FPGA 
+//     // family/part
+//     TT* vector_ptr_located(r_device);
+// #endif  
+
+//     // Repeat matrix_count complete R matrix pipe reads
+//     // for as many repetitions as needed
+//     for (int repetition_index = 0; repetition_index < repetitions;
+//          repetition_index++) {
+      
+//       [[intel::loop_coalesce(2)]]  // NO-FORMAT: Attribute
+//       for (int matrix_index = 0; matrix_index < matrix_count; matrix_index+=2) {
+//       // for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++) {
+//         for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
+//           std::pair<TT, TT> read = RMatrixPipe::read();
+//           vector_ptr_located[matrix_index * kRMatrixSize + r_idx] =
+//               read.first;
+//           vector_ptr_located[(matrix_index+1) * kRMatrixSize + r_idx] =
+//               read.second;
+//           // vector_ptr_located[(matrix_index+1) * kRMatrixSize + r_idx] =
+//           //     RBMatrixPipe::read();
+//         }  // end of r_idx
+//       }    // end of repetition_index
+//     }      // end of li
+//   });
 
   auto r_event = q.single_task<QRDLocalMemToDDRR>([=
                                     ]() [[intel::kernel_args_restrict]] {
@@ -125,13 +163,20 @@ void QRDecompositionImpl(
     for (int repetition_index = 0; repetition_index < repetitions;
          repetition_index++) {
       
-      [[intel::loop_coalesce(2)]]  // NO-FORMAT: Attribute
+      // [[intel::loop_coalesce(2)]]  // NO-FORMAT: Attribute
       for (int matrix_index = 0; matrix_index < matrix_count; matrix_index+=2) {
+      // for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++) {
+        TT second_vector[kRMatrixSize];
         for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
+          std::pair<TT, TT> read = RMatrixPipe::read();
           vector_ptr_located[matrix_index * kRMatrixSize + r_idx] =
-              RAMatrixPipe::read();
+              read.first;
+          second_vector[r_idx] = read.second;
+        }  // end of r_idx
+
+        for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
           vector_ptr_located[(matrix_index+1) * kRMatrixSize + r_idx] =
-              RBMatrixPipe::read();
+              second_vector[r_idx];
         }  // end of r_idx
       }    // end of repetition_index
     }      // end of li
