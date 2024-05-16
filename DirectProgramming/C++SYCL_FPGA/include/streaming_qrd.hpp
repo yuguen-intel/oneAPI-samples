@@ -79,33 +79,7 @@ struct StreamingQRD {
     static_assert(raw_latency >= 2*columns,
       "raw_latency must be at least two times the size of the matrix for interleaving to work");
 
-    /*
-      This code implements a oneAPI optimized variation of the following
-      algorithm
-
-      for i=0:n
-        for j=max(i,1):n
-
-          if(j==i)
-            Q_i = a_i*ir
-          else
-            if(i>=0)
-              a_j = a_j - s[j]*a_i
-
-            if j=i+1
-              pip1         = <a_{i+1},a_{i+1}>
-              ir           = 1/sqrt(pip1)
-              R_{i+1,i+1}  = sqrt(pip1)
-            else
-              p            = <a_{i+1}, a_j>
-              s[j]         = p/pip1
-              R_{i+1,j}    = p*ir
-
-
-      Where:
-      -> X_i represents the column i of the matrix X
-      -> <x,y> represents the dot product of the vectors x and y
-    */
+    constexpr int kInterleavingFactor = 2;
 
     // Set the computation type to T or ac_complex<T> depending on the value
     // of is_complex
@@ -138,18 +112,12 @@ struct StreamingQRD {
       [[intel::bankwidth(kBankwidth)]]        // NO-FORMAT: Attribute
       [[intel::private_copies(4)]]            // NO-FORMAT: Attribute
       [[intel::max_replicates(1)]]            // NO-FORMAT: Attribute
-      column_tuple a_load[columns], a_compute[columns], q_a_result[columns];
-
-      [[intel::numbanks(kNumBanksNextPow2)]]  // NO-FORMAT: Attribute
-      [[intel::bankwidth(kBankwidth)]]        // NO-FORMAT: Attribute
-      [[intel::private_copies(4)]]            // NO-FORMAT: Attribute
-      [[intel::max_replicates(1)]]            // NO-FORMAT: Attribute
-      column_tuple b_load[columns], b_compute[columns], q_b_result[columns];
+      column_tuple a_load[columns * kInterleavingFactor], a_compute[columns * kInterleavingFactor], q_a_result[columns * kInterleavingFactor];
 
       // Contains the values of the upper-right part of R in a row by row
       // fashion, starting by row 0
       [[intel::private_copies(4)]]  // NO-FORMAT: Attribute
-      TT r_a_result[kRMatrixSize], r_b_result[kRMatrixSize];
+      TT r_a_result[kRMatrixSize * kInterleavingFactor];
 
       // Copy a matrix from the pipe to a local memory
       // Number of pipe reads of pipe_size required to read a full column
@@ -162,8 +130,9 @@ struct StreamingQRD {
       fpga_tools::BitsForMaxValue<kLoopIter + 1>();
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
+      [[intel::ivdep]]
       for (ac_int<kLoopIterBitSize, false> li_a = 0; li_a < kLoopIter; li_a++) {
-        fpga_tools::NTuple<TT, pipe_size*2> pipe_read = AIn::read();
+        fpga_tools::NTuple<TT, pipe_size*kInterleavingFactor> pipe_read = AIn::read();
 
         int write_idx;
         int a_col_index;
@@ -182,7 +151,7 @@ struct StreamingQRD {
               if constexpr (k * pipe_size + t < rows) {
                 a_load[a_col_index].template get<k * pipe_size + t>() =
                 pipe_read.template get<t>();
-                b_load[a_col_index].template get<k * pipe_size + t>() =
+                a_load[a_col_index + columns].template get<k * pipe_size + t>() =
                 pipe_read.template get<t+pipe_size>();
               }
             }
@@ -213,20 +182,17 @@ struct StreamingQRD {
       int j = 0;
       int j_count = kAlwaysExtraIterations ? 1 : raw_latency -columns + 1;
 
-      TT a_i_m_1[columns];
-      TT b_i_m_1[columns];
-      TT a_i[columns];
-      TT b_i[columns];
+      TT a_i_m_1[columns], b_i_m_1[columns];
+      TT a_i[columns], b_i[columns];
 
       [[intel::fpga_memory]]
-      TT s_or_ir_a[columns];
+      TT s_or_ir_a[columns*2];
 
-      [[intel::fpga_memory]]
-      TT s_or_ir_b[columns];      
-      
       T p_a, p_b, ir_a, ir_b;
 
       int r_index_a = 0, r_index_b = 0;
+
+      constexpr int kBitsForOneMatrixAddresses = fpga_tools::BitsForMaxValue<columns>();
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
@@ -237,13 +203,20 @@ struct StreamingQRD {
         int lb = i-1 < 0 ? 0 : i-1;
         bool compute_a = lb <= j && j < columns;
         bool compute_b = lb+columns <= j && j < 2*columns;
+        bool compute = compute_a || compute_b;
 
-        if (compute_a || compute_b) {
+        int offset = compute_b ? columns : 0;
+        ac_int<1, false> bit_offset = compute_b ? 1 : 0;
+
+        if (compute) {
 
           int adjusted_j = j;
           if (compute_b) {
             adjusted_j = j - columns;
           }
+
+          ac_int<kBitsForOneMatrixAddresses + 1, false> aj_with_offset{adjusted_j};
+          aj_with_offset[fpga_tools::CeilLog2(columns)] = bit_offset;
 
           TT dp{0};
 
@@ -251,20 +224,10 @@ struct StreamingQRD {
 
             TT m_j;
             if (i <= 1) {
-              if (compute_a) {
-                m_j = a_load[adjusted_j].template get<k>();
-              }
-              else {
-                m_j = b_load[adjusted_j].template get<k>();
-              }
+              m_j = a_load[aj_with_offset].template get<k>();
             }
             else  {
-              if (compute_a) {
-                m_j = a_compute[adjusted_j].template get<k>();
-              }
-              else {
-                m_j = b_compute[adjusted_j].template get<k>();                
-              }
+              m_j = a_compute[aj_with_offset].template get<k>();
             }
 
             if (adjusted_j == i-1){
@@ -276,42 +239,26 @@ struct StreamingQRD {
               }
             }
 
-            TT s_or_ir;
-            if (compute_a) {
-              s_or_ir = s_or_ir_a[adjusted_j];
-            }
-            else {
-              s_or_ir = s_or_ir_b[adjusted_j];
-            }
+            TT i_m_1 = compute_a ? a_i_m_1[k] : b_i_m_1[k];
 
-            TT mult_lhs = (i > 0) ? (compute_a ? a_i_m_1[k] : b_i_m_1[k]) : TT{0};
-            TT mult_rhs = (i > 0) ? s_or_ir : TT{0};
+            TT mult_lhs = (i > 0) ? i_m_1 : TT{0};
+            TT mult_rhs = (i > 0) ? s_or_ir_a[aj_with_offset] : TT{0};
             TT add = (i > 0) && (adjusted_j != i-1) ? m_j : TT{0};
 
             TT mult_add = mult_lhs * mult_rhs + add;
 
             if (i > 0) {
               if (adjusted_j == i-1) {
-                if (compute_a){ 
-                  q_a_result[i-1].template get<k>() = mult_add;
-                }
-                else {
-                  q_b_result[i-1].template get<k>() = mult_add;
-                }
+                q_a_result[(i-1) + offset].template get<k>() = mult_add;
               }
               else {
-                if (compute_a){ 
-                  a_compute[adjusted_j].template get<k>() = mult_add;
-                }
-                else {
-                  b_compute[adjusted_j].template get<k>() = mult_add;
-                }
+                a_compute[aj_with_offset].template get<k>() = mult_add;
                 m_j = mult_add;
               }
             }
 
             if (adjusted_j==i) {
-              if (compute_a){ 
+              if (compute_a) {
                 if constexpr (is_complex) {
                   a_i[k] = m_j.conj();
                 }
@@ -325,11 +272,11 @@ struct StreamingQRD {
                 }
                 else {
                   b_i[k] = m_j;
-                }                
+                }
               }
             }
 
-            auto dp_rhs = compute_a ? a_i[k] : b_i[k];
+            TT dp_rhs = compute_a ? a_i[k] : b_i[k];
 
             dp += m_j * dp_rhs;
 
@@ -369,7 +316,7 @@ struct StreamingQRD {
             else {
               ir_b = rsqrt;
               s_ir_val = ir_b;
-              r_val = sqrt;              
+              r_val = sqrt;
             }
           }
           else if (adjusted_j > i) {
@@ -389,15 +336,16 @@ struct StreamingQRD {
           }
 
           if (adjusted_j != i-1){
+            int r_index = compute_b ? r_index_b : r_index_a;
+            int r_offset = compute_b ? kRMatrixSize : 0;
+            r_a_result[r_index + r_offset] = r_val;
+            s_or_ir_a[aj_with_offset] = s_ir_val;
+
             if (compute_a) {
-              r_a_result[r_index_a] = r_val;
               r_index_a++;
-              s_or_ir_a[adjusted_j] = s_ir_val;
             }
             else {
-              r_b_result[r_index_b] = r_val;
               r_index_b++;
-              s_or_ir_b[adjusted_j] = s_ir_val;              
             }
           }
         }
@@ -424,7 +372,7 @@ struct StreamingQRD {
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        ROut::write(std::pair<TT, TT>{r_a_result[r_idx], r_b_result[r_idx]});
+        ROut::write(std::pair<TT, TT>{r_a_result[r_idx], r_a_result[r_idx+kRMatrixSize]});
       }
 
 
@@ -449,9 +397,9 @@ struct StreamingQRD {
                 pipe_write.template get<k>() = sycl::ext::intel::fpga_reg(pipe_write.template get<k>());
 
               }
-              
+
               pipe_write.template get<k+pipe_size>() =
-              get[t] ? q_b_result[li / kLoopIterPerColumn]
+              get[t] ? q_a_result[li / kLoopIterPerColumn + columns]
               .template get<t * pipe_size + k>()
               : sycl::ext::intel::fpga_reg(
                pipe_write.template get<k+pipe_size>());
