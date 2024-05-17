@@ -1,6 +1,20 @@
 #ifndef __MEMORY_TRANSFERS_HPP__
 #define __MEMORY_TRANSFERS_HPP__
 
+#ifdef __SYCL_DEVICE_ONLY__
+#define CL_CONSTANT __attribute__((opencl_constant))
+#else
+#define CL_CONSTANT
+#endif
+
+using namespace sycl;
+
+#define PRINTF(format, ...)                                    \
+{                                                            \
+static const CL_CONSTANT char _format[] = format;          \
+ext::oneapi::experimental::printf(_format, ##__VA_ARGS__); \
+}
+
 #include "tuple.hpp"
 #include "constexpr_math.hpp"
 #include "unrolled_loop.hpp"
@@ -52,7 +66,7 @@ void MatrixReadFromDDRToPipe(
   // Repeatedly read matrix_count matrices from DDR and sends them to the pipe
   for (int repetition = 0; repetition < repetitions; repetition++){
 
-    for (short matrix_index = 0; matrix_index < matrix_count; matrix_index+=2){
+    for (short matrix_index = 0; matrix_index < matrix_count; matrix_index++){
 
       // Keep track of the current element index in the matrix
       // Only useful in the case of kIncompleteBurst
@@ -68,7 +82,7 @@ void MatrixReadFromDDRToPipe(
                               == kLoopIterPerColumn - 1;
         }
 
-        fpga_tools::NTuple<TT, num_elem_per_bank*2> ddr_read;
+        fpga_tools::NTuple<TT, num_elem_per_bank> ddr_read;
 
         // Perform the DDR burst read of num_elem_per_bank elements
         fpga_tools::UnrolledLoop<num_elem_per_bank>([&](auto k) {
@@ -89,29 +103,6 @@ void MatrixReadFromDDRToPipe(
           else{
             ddr_read.template get<k>() = matrix_ptr_located
                 [matrix_index * kMatrixSize + (int)(li)*num_elem_per_bank + k];
-
-          }
-        });
-
-        // Perform the DDR burst read of num_elem_per_bank elements
-        fpga_tools::UnrolledLoop<num_elem_per_bank>([&](auto k) {
-
-          if constexpr (kIncompleteBurst){
-            // Check if the current read index is beyond the end of the current
-            // matrix column
-            bool out_of_bounds = last_burst_of_col &&
-                  ((k % num_elem_per_bank) > ((rows - 1) % num_elem_per_bank));
-
-            // Only perform the DDR reads that are relevant (and don't access a
-            // memory address that may be beyond the matrix last address)
-            if (!out_of_bounds) {
-              ddr_read.template get<k+num_elem_per_bank>() = matrix_ptr_located
-                                  [(matrix_index +1) * kMatrixSize + load_index + k];
-            }
-          }
-          else{
-            ddr_read.template get<k+num_elem_per_bank>() = matrix_ptr_located
-                [(matrix_index+1) * kMatrixSize + (int)(li)*num_elem_per_bank + k];
 
           }
         });
@@ -178,7 +169,8 @@ void MatrixReadPipeToDDR(
   // Repeatedly read matrix_count matrices from the pipe and write them to DDR
   for (int repetition = 0; repetition < repetitions; repetition++){
 
-    for (short matrix_index = 0; matrix_index < matrix_count; matrix_index+=2){
+    for (short matrix_index = 0; matrix_index < matrix_count; matrix_index++){
+
       // Keep track of the current element index in the output matrix
       // Only useful in the case of kIncompleteBurst
       int write_idx = 0;
@@ -186,8 +178,7 @@ void MatrixReadPipeToDDR(
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep]]  // NO-FORMAT: Attribute
       for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
-        fpga_tools::NTuple<TT, num_elem_per_bank*2> pipe_read =
-                                                            MatrixPipe::read();
+        fpga_tools::NTuple<TT, num_elem_per_bank> pipe_read = MatrixPipe::read();
 
         bool last_burst_of_col;
         if constexpr (kIncompleteBurst){
@@ -213,27 +204,6 @@ void MatrixReadPipeToDDR(
           else{
             matrix_ptr_located[matrix_index * kMatrixSize
               + int(li) * num_elem_per_bank + k] = pipe_read.template get<k>();
-          }
-
-        });
-
-        fpga_tools::UnrolledLoop<num_elem_per_bank>([&](auto k) {
-          if constexpr (kIncompleteBurst){
-            // Check if the current write index is beyond the end of the current
-            // matrix column
-            bool out_of_bounds = last_burst_of_col &&
-                                  (k > ((rows - 1) % num_elem_per_bank));
-
-            // Only perform the DDR writes that are relevant (and don't access a
-            // memory address that may be beyond the buffer last address)
-            if (!out_of_bounds) {
-              matrix_ptr_located[(matrix_index+1) * kMatrixSize + write_idx + k] =
-                                                    pipe_read.template get<k+num_elem_per_bank>();
-            }
-          }
-          else{
-            matrix_ptr_located[(matrix_index+1) * kMatrixSize
-              + int(li) * num_elem_per_bank + k] = pipe_read.template get<k+num_elem_per_bank>();
           }
 
         });

@@ -127,41 +127,42 @@ struct StreamingQRD {
       constexpr int kLoopIter = kLoopIterPerColumn * columns;
       // Size in bits of the loop iterator over kLoopIter iterations
       constexpr int kLoopIterBitSize =
-      fpga_tools::BitsForMaxValue<kLoopIter + 1>();
+      fpga_tools::BitsForMaxValue<kLoopIter*kInterleavingFactor + 1>();
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep]]
-      for (ac_int<kLoopIterBitSize, false> li_a = 0; li_a < kLoopIter; li_a++) {
-        fpga_tools::NTuple<TT, pipe_size*kInterleavingFactor> pipe_read = AIn::read();
+      for (ac_int<kLoopIterBitSize, false> li_a = 0; li_a < kLoopIter*kInterleavingFactor; li_a++) {
+        bool second_matrix = li_a >= kLoopIter;
+        fpga_tools::NTuple<TT, pipe_size> pipe_read = AIn::read();
+
+        int aj_li = second_matrix ? int(li_a) - kLoopIter : int(li_a);
 
         int write_idx;
         int a_col_index;
         if constexpr (k_column_order) {
-          write_idx = li_a % kLoopIterPerColumn;
-          a_col_index = li_a / kLoopIterPerColumn;
+          write_idx = aj_li % kLoopIterPerColumn;
+          a_col_index = second_matrix ? aj_li / kLoopIterPerColumn + columns : aj_li / kLoopIterPerColumn;
         } else {
-          write_idx = li_a / columns;
-          a_col_index = li_a % columns;
+          write_idx = aj_li / columns;
+          a_col_index = second_matrix ? aj_li % columns + columns : aj_li % columns;
         }
-        // int write_idx = li_a / columns;
 
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
           fpga_tools::UnrolledLoop<pipe_size>([&](auto t) {
             if (write_idx == k) {
-              if constexpr (k * pipe_size + t < rows) {
-                a_load[a_col_index].template get<k * pipe_size + t>() =
-                pipe_read.template get<t>();
-                a_load[a_col_index + columns].template get<k * pipe_size + t>() =
-                pipe_read.template get<t+pipe_size>();
+
+              constexpr int get_value = k * pipe_size + t;
+
+              if constexpr (get_value < rows) {
+                a_load[a_col_index].template get<get_value>() = pipe_read.template get<t>();
               }
             }
 
             // Delay data signals to create a vine-based data distribution
-            // to lower signal fanout.
+            // to lower signal fanout
             pipe_read.template get<t>() =
             sycl::ext::intel::fpga_reg(pipe_read.template get<t>());
-            pipe_read.template get<t+pipe_size>() =
-            sycl::ext::intel::fpga_reg(pipe_read.template get<t+pipe_size>());
+
           });
 
           write_idx = sycl::ext::intel::fpga_reg(write_idx);
@@ -371,25 +372,30 @@ struct StreamingQRD {
       constexpr int kRMatrixSize = columns * (columns + 1) / 2;
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
-        ROut::write(std::pair<TT, TT>{r_a_result[r_idx], r_a_result[r_idx+kRMatrixSize]});
+      for (int r_idx = 0; r_idx < kRMatrixSize*2; r_idx++) {
+        ROut::write(r_a_result[r_idx]);
       }
 
-
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
-        int column_iter = li % kLoopIterPerColumn;
+      for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter*kInterleavingFactor; li++) {
+        bool second_matrix = li >= kLoopIter;
+
+        int aj_li = second_matrix ? int(li) - kLoopIter : int(li);
+
+        int column_iter = aj_li % kLoopIterPerColumn;
         bool get[kLoopIterPerColumn];
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
           get[k] = column_iter == k;
           column_iter = sycl::ext::intel::fpga_reg(column_iter);
         });
 
-        fpga_tools::NTuple<TT, pipe_size*2> pipe_write;
+        int a_col_index = second_matrix ? aj_li / kLoopIterPerColumn + columns : aj_li / kLoopIterPerColumn;
+
+        fpga_tools::NTuple<TT, pipe_size> pipe_write;
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto t) {
           fpga_tools::UnrolledLoop<pipe_size>([&](auto k) {
             if constexpr (t * pipe_size + k < rows) {
-              auto q = q_a_result[li / kLoopIterPerColumn].template get<t * pipe_size + k>();
+              auto q = q_a_result[a_col_index].template get<t * pipe_size + k>();
               if (get[t]) {
                 pipe_write.template get<k>() = q;
               }
@@ -398,11 +404,11 @@ struct StreamingQRD {
 
               }
 
-              pipe_write.template get<k+pipe_size>() =
-              get[t] ? q_a_result[li / kLoopIterPerColumn + columns]
-              .template get<t * pipe_size + k>()
-              : sycl::ext::intel::fpga_reg(
-               pipe_write.template get<k+pipe_size>());
+              // pipe_write.template get<k+pipe_size>() =
+              // get[t] ? q_a_result[li / kLoopIterPerColumn + columns]
+              // .template get<t * pipe_size + k>()
+              // : sycl::ext::intel::fpga_reg(
+              //  pipe_write.template get<k+pipe_size>());
             }
           });
         });
