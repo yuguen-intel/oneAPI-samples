@@ -12,7 +12,12 @@
 #include <vector>
 
 #include "memory_transfers.hpp"
+
+#ifdef INTERLEAVED
+#include "streaming_qrd_interleaved.hpp"
+#else
 #include "streaming_qrd.hpp"
+#endif
 #include "tuple.hpp"
 
 // Forward declare the kernel and pipe names

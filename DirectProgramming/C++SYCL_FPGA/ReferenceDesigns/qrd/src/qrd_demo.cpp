@@ -195,6 +195,12 @@ int main(int argc, char *argv[]) {
               << " matri" << (kMatricesToDecompose > 1 ? "ces " : "x ")
               << repetitions << " times" << std::endl;
 
+#ifdef INTERLEAVED
+    std::cout << "Using the interleaved version of QRD." << std::endl; 
+#else
+    std::cout << "Using the regular version of QRD." << std::endl; 
+#endif
+
     QRDecomposition(a_matrix, q_matrix, r_matrix, q, kMatricesToDecompose,
                                                                   repetitions);
 

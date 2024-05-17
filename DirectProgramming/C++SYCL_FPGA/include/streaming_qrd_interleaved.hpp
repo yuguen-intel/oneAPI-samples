@@ -68,54 +68,31 @@ template <typename T,       // The datatype for the computation
                     // contains pipe_size samples from the same column, then the
                     // next read contains samples from the next column.
               >
-              struct StreamingQRD {
-                void operator()() const {
+struct StreamingQRD {
+  void operator()() const {
     // Functional limitations
-                  static_assert(rows >= columns,
-                    "only rectangular matrices with rows>=columns are supported");
-                  static_assert(columns >= 4,
-                    "only matrices of size 4x4 and over are supported");
+    static_assert(rows >= columns,
+      "only rectangular matrices with rows>=columns are supported");
+    static_assert(columns >= 4,
+      "only matrices of size 4x4 and over are supported");
 
-    /*
-      This code implements a oneAPI optimized variation of the following
-      algorithm
+    static_assert(raw_latency >= 2*columns,
+      "raw_latency must be at least two times the size of the matrix for interleaving to work");
 
-      for i=0:n
-        for j=max(i,1):n
-
-          if(j==i)
-            Q_i = a_i*ir
-          else
-            if(i>=0)
-              a_j = a_j - s[j]*a_i
-
-            if j=i+1
-              pip1         = <a_{i+1},a_{i+1}>
-              ir           = 1/sqrt(pip1)
-              R_{i+1,i+1}  = sqrt(pip1)
-            else
-              p            = <a_{i+1}, a_j>
-              s[j]         = p/pip1
-              R_{i+1,j}    = p*ir
-
-
-      Where:
-      -> X_i represents the column i of the matrix X
-      -> <x,y> represents the dot product of the vectors x and y
-    */
+    constexpr int kInterleavingFactor = 2;
 
     // Set the computation type to T or ac_complex<T> depending on the value
     // of is_complex
-                  using TT = std::conditional_t<is_complex, ac_complex<T>, T>;
+    using TT = std::conditional_t<is_complex, ac_complex<T>, T>;
 
     // Type used to store the matrices in the compute loop
-                  using column_tuple = fpga_tools::NTuple<TT, rows>;
+    using column_tuple = fpga_tools::NTuple<TT, rows>;
 
     // Number of upper-right elements in the R output matrix
-                  constexpr int kRMatrixSize = columns * (columns + 1) / 2;
+    constexpr int kRMatrixSize = columns * (columns + 1) / 2;
 
     // Compute QRDs as long as matrices are given as inputs
-                  while (1) {
+    while (1) {
       // Three copies of the full matrix, so that each matrix has a single
       // load and a single store.
       // a_load is the initial matrix received from the pipe
@@ -123,24 +100,24 @@ template <typename T,       // The datatype for the computation
       // q_result is a copy of a_compute and is used to send the final output
 
       // Break memories up to store 4 complex numbers (32 bytes) per bank
-                    constexpr short kBankwidth = pipe_size * sizeof(TT);
-                    constexpr unsigned short kNumBanks = rows / pipe_size;
+      constexpr short kBankwidth = pipe_size * sizeof(TT);
+      constexpr unsigned short kNumBanks = rows / pipe_size;
 
       // When specifying numbanks for a memory, it must be a power of 2.
       // Unused banks will be automatically optimized away.
-                    constexpr short kNumBanksNextPow2 =
-                    fpga_tools::Pow2(fpga_tools::CeilLog2(kNumBanks));
+      constexpr short kNumBanksNextPow2 =
+      fpga_tools::Pow2(fpga_tools::CeilLog2(kNumBanks));
 
       [[intel::numbanks(kNumBanksNextPow2)]]  // NO-FORMAT: Attribute
       [[intel::bankwidth(kBankwidth)]]        // NO-FORMAT: Attribute
       [[intel::private_copies(4)]]            // NO-FORMAT: Attribute
       [[intel::max_replicates(1)]]            // NO-FORMAT: Attribute
-      column_tuple a_load[columns], a_compute[columns], q_a_result[columns];
+      column_tuple a_load[columns * kInterleavingFactor], a_compute[columns * kInterleavingFactor], q_a_result[columns * kInterleavingFactor];
 
       // Contains the values of the upper-right part of R in a row by row
       // fashion, starting by row 0
       [[intel::private_copies(4)]]  // NO-FORMAT: Attribute
-      TT r_a_result[kRMatrixSize];
+      TT r_a_result[kRMatrixSize * kInterleavingFactor];
 
       // Copy a matrix from the pipe to a local memory
       // Number of pipe reads of pipe_size required to read a full column
@@ -150,36 +127,42 @@ template <typename T,       // The datatype for the computation
       constexpr int kLoopIter = kLoopIterPerColumn * columns;
       // Size in bits of the loop iterator over kLoopIter iterations
       constexpr int kLoopIterBitSize =
-      fpga_tools::BitsForMaxValue<kLoopIter + 1>();
+      fpga_tools::BitsForMaxValue<kLoopIter*kInterleavingFactor + 1>();
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li_a = 0; li_a < kLoopIter; li_a++) {
+      [[intel::ivdep]]
+      for (ac_int<kLoopIterBitSize, false> li_a = 0; li_a < kLoopIter*kInterleavingFactor; li_a++) {
+        bool second_matrix = li_a >= kLoopIter;
         fpga_tools::NTuple<TT, pipe_size> pipe_read = AIn::read();
+
+        int aj_li = second_matrix ? int(li_a) - kLoopIter : int(li_a);
 
         int write_idx;
         int a_col_index;
         if constexpr (k_column_order) {
-          write_idx = li_a % kLoopIterPerColumn;
-          a_col_index = li_a / kLoopIterPerColumn;
+          write_idx = aj_li % kLoopIterPerColumn;
+          a_col_index = second_matrix ? aj_li / kLoopIterPerColumn + columns : aj_li / kLoopIterPerColumn;
         } else {
-          write_idx = li_a / columns;
-          a_col_index = li_a % columns;
+          write_idx = aj_li / columns;
+          a_col_index = second_matrix ? aj_li % columns + columns : aj_li % columns;
         }
-        // int write_idx = li_a / columns;
 
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
           fpga_tools::UnrolledLoop<pipe_size>([&](auto t) {
             if (write_idx == k) {
-              if constexpr (k * pipe_size + t < rows) {
-                a_load[a_col_index].template get<k * pipe_size + t>() =
-                pipe_read.template get<t>();
+
+              constexpr int get_value = k * pipe_size + t;
+
+              if constexpr (get_value < rows) {
+                a_load[a_col_index].template get<get_value>() = pipe_read.template get<t>();
               }
             }
 
             // Delay data signals to create a vine-based data distribution
-            // to lower signal fanout.
+            // to lower signal fanout
             pipe_read.template get<t>() =
             sycl::ext::intel::fpga_reg(pipe_read.template get<t>());
+
           });
 
           write_idx = sycl::ext::intel::fpga_reg(write_idx);
@@ -187,9 +170,9 @@ template <typename T,       // The datatype for the computation
       }
 
       // Compute the QR Decomposition
-
+      constexpr int kExtraIterationsForInterleaving = columns;
       constexpr int kAlwaysExtraIterations = raw_latency>columns;
-      constexpr int kIterationCountAlwaysExtraIterations = (raw_latency + 1) * columns;
+      constexpr int kIterationCountAlwaysExtraIterations = (raw_latency + 1) * columns + kExtraIterationsForInterleaving;
       constexpr int kIterationCountNotAlwaysExtraIterations = columns*(columns+1)/2 + columns + raw_latency*(raw_latency-1)/2;
       constexpr int kTotalIterations = kAlwaysExtraIterations ? kIterationCountAlwaysExtraIterations : kIterationCountNotAlwaysExtraIterations;
 
@@ -200,15 +183,17 @@ template <typename T,       // The datatype for the computation
       int j = 0;
       int j_count = kAlwaysExtraIterations ? 1 : raw_latency -columns + 1;
 
-      TT a_i_m_1[columns];
-      TT a_i[columns];
+      TT a_i_m_1[columns], b_i_m_1[columns];
+      TT a_i[columns], b_i[columns];
 
       [[intel::fpga_memory]]
-      TT s_or_ir[columns];
-      
-      T p, ir;
+      TT s_or_ir_a[columns*2];
 
-      int r_index = 0;
+      T p_a, p_b, ir_a, ir_b;
+
+      int r_index_a = 0, r_index_b = 0;
+
+      constexpr int kBitsForOneMatrixAddresses = fpga_tools::BitsForMaxValue<columns>();
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
@@ -216,77 +201,154 @@ template <typename T,       // The datatype for the computation
 
         // PRINTF("i: %d, j: %d\n", int(i), int(j));
 
-        TT dp{0};
+        int lb = i-1 < 0 ? 0 : i-1;
+        bool compute_a = lb <= j && j < columns;
+        bool compute_b = lb+columns <= j && j < 2*columns;
+        bool compute = compute_a || compute_b;
 
-        fpga_tools::UnrolledLoop<rows>([&](auto k) {
+        int offset = compute_b ? columns : 0;
+        ac_int<1, false> bit_offset = compute_b ? 1 : 0;
 
-          TT a_j;
-          if ((i <= 1) && (j < columns)) {
-            a_j = a_load[j].template get<k>();
-          }
-          else if (j < columns) {
-            a_j = a_compute[j].template get<k>();
-          }
-          else {
-            a_j = 0;
-          }
+        if (compute) {
 
-          if (j==i-1){
-            a_i_m_1[k] = a_j;
+          int adjusted_j = j;
+          if (compute_b) {
+            adjusted_j = j - columns;
           }
 
-          TT mult_lhs = (i > 0) ? a_i_m_1[k] : TT{0};
-          TT mult_rhs = (i > 0) && (j < columns) ? s_or_ir[j] : TT{0};
-          TT add = (i > 0) && (j != i-1) ? a_j : TT{0};
+          ac_int<kBitsForOneMatrixAddresses + 1, false> aj_with_offset{adjusted_j};
+          aj_with_offset[fpga_tools::CeilLog2(columns)] = bit_offset;
 
-          TT mult_add = mult_lhs * mult_rhs + add;
+          TT dp{0};
 
-          if (i > 0) {
-            if (j == i-1) {
-              q_a_result[i-1].template get<k>() = mult_add;
+          fpga_tools::UnrolledLoop<rows>([&](auto k) {
+
+            TT m_j;
+            if (i <= 1) {
+              m_j = a_load[aj_with_offset].template get<k>();
             }
-            else if (j < columns) {
-              a_compute[j].template get<k>() = mult_add;
-              a_j = mult_add;
+            else  {
+              m_j = a_compute[aj_with_offset].template get<k>();
             }
-          }
 
-          if (j==i) {
-            if constexpr (is_complex) {
-              a_i[k] = a_j.conj();
+            if (adjusted_j == i-1){
+              if (compute_a) {
+                a_i_m_1[k] = m_j;
+              }
+              else {
+                b_i_m_1[k] = m_j;
+              }
+            }
+
+            TT i_m_1 = compute_a ? a_i_m_1[k] : b_i_m_1[k];
+
+            TT mult_lhs = (i > 0) ? i_m_1 : TT{0};
+            TT mult_rhs = (i > 0) ? s_or_ir_a[aj_with_offset] : TT{0};
+            TT add = (i > 0) && (adjusted_j != i-1) ? m_j : TT{0};
+
+            TT mult_add = mult_lhs * mult_rhs + add;
+
+            if (i > 0) {
+              if (adjusted_j == i-1) {
+                q_a_result[(i-1) + offset].template get<k>() = mult_add;
+              }
+              else {
+                a_compute[aj_with_offset].template get<k>() = mult_add;
+                m_j = mult_add;
+              }
+            }
+
+            if (adjusted_j==i) {
+              if (compute_a) {
+                if constexpr (is_complex) {
+                  a_i[k] = m_j.conj();
+                }
+                else {
+                  a_i[k] = m_j;
+                }
+              }
+              else {
+                if constexpr (is_complex) {
+                  b_i[k] = m_j.conj();
+                }
+                else {
+                  b_i[k] = m_j;
+                }
+              }
+            }
+
+            TT dp_rhs = compute_a ? a_i[k] : b_i[k];
+
+            dp += m_j * dp_rhs;
+
+          });
+
+          TT s_ir_val;
+          TT r_val;
+          if (adjusted_j == i)  {
+            T p;
+            if (compute_a) {
+              if constexpr (is_complex) {
+                p_a = dp.r();
+              }
+              else {
+                p_a = dp;
+              }
+              p = p_a;
             }
             else {
-              a_i[k] = a_j;
+              if constexpr (is_complex) {
+                p_b = dp.r();
+              }
+              else {
+                p_b = dp;
+              }
+              p = p_b;
+            }
+
+            T rsqrt = sycl::rsqrt(p);
+            T sqrt = sycl::sqrt(p);
+
+            if (compute_a) {
+              ir_a = rsqrt;
+              s_ir_val = ir_a;
+              r_val = sqrt;
+            }
+            else {
+              ir_b = rsqrt;
+              s_ir_val = ir_b;
+              r_val = sqrt;
             }
           }
+          else if (adjusted_j > i) {
+            T p;
+            T ir;
+            if (compute_a) {
+              p = p_a;
+              ir = ir_a;
+            }
+            else {
+              p = p_b;
+              ir = ir_b;
+            }
 
-          dp += a_j * a_i[k];
-
-        });
-
-        TT s_ir_val;
-        TT r_val;
-        if (j==i)  {
-          if constexpr (is_complex) {
-            p = dp.r();
+            s_ir_val = -dp/p;
+            r_val = dp*ir;
           }
-          else {
-            p = dp;
+
+          if (adjusted_j != i-1){
+            int r_index = compute_b ? r_index_b : r_index_a;
+            int r_offset = compute_b ? kRMatrixSize : 0;
+            r_a_result[r_index + r_offset] = r_val;
+            s_or_ir_a[aj_with_offset] = s_ir_val;
+
+            if (compute_a) {
+              r_index_a++;
+            }
+            else {
+              r_index_b++;
+            }
           }
-          ir = sycl::rsqrt(p);
-
-          s_ir_val = ir;
-          r_val = sycl::sqrt(p);
-        }
-        else if (j > i) {
-          s_ir_val = -dp/p;
-          r_val = dp*ir;
-        }
-
-        if ((j != i-1) && (j < columns)){
-          r_a_result[r_index] = r_val;
-          r_index++;
-          s_or_ir[j] = s_ir_val;
         }
 
         // Update loop indexes
@@ -310,28 +372,43 @@ template <typename T,       // The datatype for the computation
       constexpr int kRMatrixSize = columns * (columns + 1) / 2;
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (int r_idx = 0; r_idx < kRMatrixSize; r_idx++) {
+      for (int r_idx = 0; r_idx < kRMatrixSize*2; r_idx++) {
         ROut::write(r_a_result[r_idx]);
       }
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
-      for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter; li++) {
-        int column_iter = li % kLoopIterPerColumn;
+      for (ac_int<kLoopIterBitSize, false> li = 0; li < kLoopIter*kInterleavingFactor; li++) {
+        bool second_matrix = li >= kLoopIter;
+
+        int aj_li = second_matrix ? int(li) - kLoopIter : int(li);
+
+        int column_iter = aj_li % kLoopIterPerColumn;
         bool get[kLoopIterPerColumn];
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
           get[k] = column_iter == k;
           column_iter = sycl::ext::intel::fpga_reg(column_iter);
         });
 
+        int a_col_index = second_matrix ? aj_li / kLoopIterPerColumn + columns : aj_li / kLoopIterPerColumn;
+
         fpga_tools::NTuple<TT, pipe_size> pipe_write;
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto t) {
           fpga_tools::UnrolledLoop<pipe_size>([&](auto k) {
             if constexpr (t * pipe_size + k < rows) {
-              pipe_write.template get<k>() =
-              get[t] ? q_a_result[li / kLoopIterPerColumn]
-              .template get<t * pipe_size + k>()
-              : sycl::ext::intel::fpga_reg(
-               pipe_write.template get<k>());
+              auto q = q_a_result[a_col_index].template get<t * pipe_size + k>();
+              if (get[t]) {
+                pipe_write.template get<k>() = q;
+              }
+              else {
+                pipe_write.template get<k>() = sycl::ext::intel::fpga_reg(pipe_write.template get<k>());
+
+              }
+
+              // pipe_write.template get<k+pipe_size>() =
+              // get[t] ? q_a_result[li / kLoopIterPerColumn + columns]
+              // .template get<t * pipe_size + k>()
+              // : sycl::ext::intel::fpga_reg(
+              //  pipe_write.template get<k+pipe_size>());
             }
           });
         });
