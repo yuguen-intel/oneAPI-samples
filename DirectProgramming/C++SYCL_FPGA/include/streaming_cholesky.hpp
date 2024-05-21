@@ -178,7 +178,7 @@ struct StreamingCholesky {
         });
       }
 
-/*
+
       // Computation of the number of iterations required for the triangular
       // loop. Refer to the triangular_loop tutorial for details on how
       // to compute these.
@@ -340,7 +340,7 @@ struct StreamingCholesky {
         }
       }
 
-*/
+
       // Count the total number of loop iterations, using the triangular loop
       // optimization (refer to the Triangular Loop design pattern tutorial)
       constexpr int kNormalIterations = kColumns * (kColumns + 1) / 2;
@@ -372,8 +372,7 @@ struct StreamingCholesky {
 
           TT col_reg[kColumns];
           fpga_tools::UnrolledLoop<kColumns>([&](auto k) {
-            // col_reg[k] = l_matrix[col][k];
-            col_reg[k] = a_load[col][k];
+            col_reg[k] = l_matrix[col][k];
           });
 
 
@@ -460,13 +459,6 @@ struct StreamingCholesky {
         first_inversion = !first_inversion;
       }
 
-      int inverse_matrix_read_idx = 0;
-      for (int loop_count = 0; loop_count < kNormalIterations; loop_count++) {
-        IOut::write(li_matrix[inverse_matrix_read_idx/rows][inverse_matrix_read_idx%rows]);
-        inverse_matrix_read_idx++;
-      }
-
-/*
       int inverse_matrix_write_idx = 0;
       // Compute inv(A) = inv(L)*trans(inv(L))
       for (int col = 0; col < rows; col++) {
@@ -546,7 +538,6 @@ struct StreamingCholesky {
         IOut::write(i_matrix[inverse_matrix_read_idx]);
         inverse_matrix_read_idx++;
       }
-*/
     }  // end of while(1)
   }    // end of operator
 };     // end of struct

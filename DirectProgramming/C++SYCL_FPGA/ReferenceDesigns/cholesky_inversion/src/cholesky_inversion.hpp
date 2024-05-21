@@ -93,6 +93,7 @@ void CholeskyInversionImpl(
 
   // Read the A matrix from the AMatrixPipe pipe and compute the Cholesky
   // decomposition. Write the L output matrix to the LMatrixPipe pipe.
+  
   q.single_task<Kernel>(
       fpga_linalg::StreamingCholesky<
           T, is_complex, dimension, raw_latency_decomposition, raw_latency_inversion,
