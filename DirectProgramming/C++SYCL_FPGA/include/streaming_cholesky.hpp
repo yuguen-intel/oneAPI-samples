@@ -397,14 +397,9 @@ struct StreamingCholesky {
             TT rhs;
             if (rhs_check) {
               TT li_compute_load;
-              if (first_inversion){
-                li_compute_load = li_matrix_compute[row_inversion][k];
-              //   PRINTF("it: %d -> Reading row %d col %d\n", it, row_inversion, (int) k);
-              }
-              else {
-                li_compute_load = li_matrix_compute[row_inversion][k + (kColumns/2)];
-              //   PRINTF("it: %d -> Reading row %d col %d\n", it, row_inversion, (int) (k + (kColumns/2)));          
-              }
+              int colk = first_inversion ? k : k + (kColumns/2);
+              li_compute_load = li_matrix_compute[row_inversion][colk];
+
               rhs = li_compute_load;
             } else {
               rhs = TT{0};
