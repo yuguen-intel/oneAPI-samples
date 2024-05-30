@@ -113,7 +113,11 @@ void QRDecompositionImpl(
 #endif
 
 #ifdef INTERLEAVED
+#ifdef THREE_WAY_INTERLEAVING
+  constexpr int kInterleavingFactor = 3;
+#else
   constexpr int kInterleavingFactor = 2;
+#endif
 #else
   constexpr int kInterleavingFactor = 1;
 #endif
@@ -129,6 +133,9 @@ void QRDecompositionImpl(
         int r_idx_a = 0;
 #ifdef INTERLEAVED
         int r_idx_b = 0;
+#ifdef THREE_WAY_INTERLEAVING
+        int r_idx_c = 0;
+#endif
 #endif
         [[intel::ivdep]]  // NO-FORMAT: Attribute
         for (int row=0; row < rows; row++){
@@ -138,10 +145,28 @@ void QRDecompositionImpl(
             bool second_matrix = col>=(columns-row);
             int matrix_offset = second_matrix ? 1 : 0;
             int index_offset = second_matrix ? r_idx_b : r_idx_a;
+#ifdef THREE_WAY_INTERLEAVING
+            bool third_matrix = col>=(columns-row)*2;
+            if (third_matrix) {
+              second_matrix = false;
+              matrix_offset = 2;
+              index_offset = r_idx_c;
+            }
+#endif
+
             vector_ptr_located[(matrix_index+matrix_offset) * kRMatrixSize + index_offset] = read;
 
-            r_idx_a = second_matrix ? r_idx_a : r_idx_a + 1;
-            r_idx_b = second_matrix ? r_idx_b + 1 : r_idx_b;
+            if (second_matrix) {
+              r_idx_b++;  
+            }
+#ifdef THREE_WAY_INTERLEAVING
+            else if (third_matrix) {
+              r_idx_c++;
+            }
+#endif
+            else{
+              r_idx_a++;
+            }
 #else
             vector_ptr_located[matrix_index * kRMatrixSize + r_idx_a] = read;
             r_idx_a++;
@@ -162,6 +187,7 @@ void QRDecompositionImpl(
 
   r_event.wait();
   q_event.wait();
+  ddr_write_event.wait();
 
   // Compute the total time the execution lasted
   auto start_time = ddr_write_event.template get_profiling_info<

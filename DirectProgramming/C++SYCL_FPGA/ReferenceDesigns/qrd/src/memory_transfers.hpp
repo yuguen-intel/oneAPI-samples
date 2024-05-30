@@ -37,7 +37,11 @@ void MatrixReadFromDDRToPipe(
     int repetitions    // Number of time to write the same matrix to the pipe
 ) {
 #ifdef INTERLEAVED
+#ifdef THREE_WAY_INTERLEAVING
+  constexpr int kInterleavingFactor = 3;
+#else
   constexpr int kInterleavingFactor = 2;
+#endif
 #else
   constexpr int kInterleavingFactor = 1;
 #endif
@@ -139,11 +143,22 @@ void MatrixReadFromDDRToPipe(
         }
 
         bool second_matrix = li >= kLoopIter;
-        int aj_li = second_matrix ? int(li) - kLoopIter : int(li);
+        int aj_offset = second_matrix ? kLoopIter : 0;
+        int acol_offset = second_matrix ? columns : 0;
+#ifdef THREE_WAY_INTERLEAVING
+        bool third_matrix = li >= kLoopIter*2;
+        if (third_matrix) {
+          aj_offset = kLoopIter*2;
+          acol_offset = 2*columns;
+        }
+#endif
+
+
+
+        int aj_li = int(li) - aj_offset;
 
         int write_idx = aj_li % kLoopIterPerColumn;
-        int a_col_index = second_matrix ? aj_li / kLoopIterPerColumn + columns
-                                        : aj_li / kLoopIterPerColumn;
+        int a_col_index = aj_li / kLoopIterPerColumn + acol_offset;
 
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto k) {
           fpga_tools::UnrolledLoop<num_elem_per_bank>([&](auto t) {
@@ -194,7 +209,11 @@ void MatrixReadPipeToDDR(
     int repetitions    // Number of time to read the same matrix to the pipe
 ) {
 #ifdef INTERLEAVED
+#ifdef THREE_WAY_INTERLEAVING
+  constexpr int kInterleavingFactor = 3;
+#else
   constexpr int kInterleavingFactor = 2;
+#endif
 #else
   constexpr int kInterleavingFactor = 1;
 #endif
@@ -250,9 +269,12 @@ void MatrixReadPipeToDDR(
       
       for (int col = 0; col < columns * kInterleavingFactor; col++) {
 #ifdef INTERLEAVED
-        int base_addr = col / 2;
+        int base_addr = col / kInterleavingFactor;
+#ifdef THREE_WAY_INTERLEAVING
+        int offset = col%3 == 0 ? 0 : (col%3 == 1 ? columns : columns*2);
+#else
         int offset = col%2 == 0 ? 0 : columns;
-
+#endif
         q_result[base_addr + offset] = MatrixPipe::read();
 #else
         q_result[col] = MatrixPipe::read();
@@ -268,7 +290,16 @@ void MatrixReadPipeToDDR(
       for (ac_int<kLoopIterBitSize, false> li = 0;
            li < kLoopIter * kInterleavingFactor; li++) {
         bool second_matrix = li >= kLoopIter;
-        int aj_li = second_matrix ? int(li) - kLoopIter : int(li);
+        int aj_offset = second_matrix ? kLoopIter : 0;
+        int acol_offset = second_matrix ? columns : 0;
+#ifdef THREE_WAY_INTERLEAVING
+        bool third_matrix = li >= kLoopIter*2;
+        if (third_matrix) {
+          aj_offset = kLoopIter*2;
+          acol_offset = 2*columns;
+        }
+#endif
+        int aj_li = int(li) - aj_offset;
 
         int column_iter = aj_li % kLoopIterPerColumn;
         bool get[kLoopIterPerColumn];
@@ -277,8 +308,7 @@ void MatrixReadPipeToDDR(
           column_iter = sycl::ext::intel::fpga_reg(column_iter);
         });
 
-        int a_col_index = second_matrix ? aj_li / kLoopIterPerColumn + columns
-                                        : aj_li / kLoopIterPerColumn;
+        int a_col_index = aj_li / kLoopIterPerColumn + acol_offset;
 
         fpga_tools::NTuple<TT, num_elem_per_bank> pipe_write;
         fpga_tools::UnrolledLoop<kLoopIterPerColumn>([&](auto t) {
@@ -305,6 +335,11 @@ void MatrixReadPipeToDDR(
 
 #ifdef INTERLEAVED
         int offset = second_matrix ? 1 : 0;
+#ifdef THREE_WAY_INTERLEAVING
+        if (third_matrix) {
+          offset = 2;
+        }
+#endif
 #else
         int offset = 0;
 #endif

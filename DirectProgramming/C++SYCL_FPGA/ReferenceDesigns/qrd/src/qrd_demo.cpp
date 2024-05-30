@@ -8,6 +8,16 @@
 
 #include "exception_handler.hpp"
 
+#if(INTERLEAVED == 3)
+#define THREE_WAY_INTERLEAVING
+#endif
+
+#ifdef DOUBLE
+using TYPE = double;
+#else
+using TYPE = float;
+#endif
+
 #include "qrd.hpp"
 
 // #define DEBUG
@@ -20,11 +30,7 @@
 #define COLS_COMPONENT_V COLS_COMPONENT
 #endif
 
-#ifdef DOUBLE
-using TYPE = double;
-#else
-using TYPE = float;
-#endif
+
 
 
 
@@ -116,9 +122,13 @@ int main(int argc, char *argv[]) {
   }
 
 #if defined(FPGA_SIMULATOR)
-  constexpr size_t kMatricesToDecompose = 2;
+#ifdef THREE_WAY_INTERLEAVING
+  constexpr size_t kMatricesToDecompose = 3;
 #else
-  constexpr size_t kMatricesToDecompose = 8;
+  constexpr size_t kMatricesToDecompose = 2;
+#endif
+#else
+  constexpr size_t kMatricesToDecompose = 6;
 #endif
 
   try {
@@ -205,6 +215,11 @@ int main(int argc, char *argv[]) {
 
 #ifdef INTERLEAVED
     std::cout << "Using the interleaved version of QRD." << std::endl; 
+#ifdef THREE_WAY_INTERLEAVING
+    std::cout << "Interleaving factor: 3" << std::endl; 
+#else
+    std::cout << "Interleaving factor: 2" << std::endl; 
+#endif
 #else
     std::cout << "Using the regular version of QRD." << std::endl; 
 #endif

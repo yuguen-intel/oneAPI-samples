@@ -67,11 +67,20 @@ struct StreamingQRD {
     static_assert(columns >= 4,
                   "only matrices of size 4x4 and over are supported");
 
+
+#ifdef THREE_WAY_INTERLEAVING
+    static_assert(raw_latency >= 3 * columns,
+                  "raw_latency must be at least two times the size of the "
+                  "matrix for interleaving to work");
+
+    constexpr int kInterleavingFactor = 3;
+#else
     static_assert(raw_latency >= 2 * columns,
                   "raw_latency must be at least two times the size of the "
                   "matrix for interleaving to work");
 
     constexpr int kInterleavingFactor = 2;
+#endif
 
     // Set the computation type to T or ac_complex<T> depending on the value
     // of is_complex
@@ -99,7 +108,7 @@ struct StreamingQRD {
       column_tuple a_compute[columns * kInterleavingFactor];
 
       // Compute the QR Decomposition
-      constexpr int kExtraIterationsForInterleaving = columns;
+      constexpr int kExtraIterationsForInterleaving = columns*(kInterleavingFactor-1);
       constexpr int kAlwaysExtraIterations = raw_latency > columns;
       constexpr int kIterationCountAlwaysExtraIterations =
           (raw_latency + 1) * columns + kExtraIterationsForInterleaving;
@@ -120,14 +129,21 @@ struct StreamingQRD {
       TT a_i_m_1[columns], b_i_m_1[columns];
       TT a_i[columns], b_i[columns];
 
-      [[intel::fpga_memory]] TT s_or_ir_a[columns * 2];
+      [[intel::fpga_memory]] TT s_or_ir_a[columns * kInterleavingFactor];
 
       T p_a, p_b, ir_a, ir_b;
 
-      // int r_index_a = 0, r_index_b = 0;
+#ifdef THREE_WAY_INTERLEAVING
+      TT c_i_m_1[columns];
+      TT c_i[columns];
+      T p_c, ir_c;
+#endif
 
       constexpr int kBitsForOneMatrixAddresses =
           fpga_tools::BitsForMaxValue<columns>();
+      constexpr int kBitsMatrixMultiplexing =
+          fpga_tools::CeilLog2(kInterleavingFactor);
+
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
@@ -137,21 +153,38 @@ struct StreamingQRD {
         int lb = i - 1 < 0 ? 0 : i - 1;
         bool compute_a = lb <= j && j < columns;
         bool compute_b = lb + columns <= j && j < 2 * columns;
-        bool compute = compute_a || compute_b;
 
-        // int offset = compute_b ? columns : 0;
+#ifdef THREE_WAY_INTERLEAVING
+        bool compute_c = lb + 2 * columns <= j && j < 3 * columns;
+        bool compute = compute_a || compute_b || compute_c;
+        ac_int<2, false> bit_offset = compute_b ? 1 : (compute_c ? 2 : 0);
+#else
+        bool compute = compute_a || compute_b;
         ac_int<1, false> bit_offset = compute_b ? 1 : 0;
+#endif
+
+
 
         if (compute) {
           int adjusted_j = j;
           if (compute_b) {
             adjusted_j = j - columns;
           }
+#ifdef THREE_WAY_INTERLEAVING
+          else if (compute_c) {
+            adjusted_j = j - 2 * columns;
+          }
+#endif
 
-          ac_int<kBitsForOneMatrixAddresses + 1, false> aj_with_offset{
+          ac_int<kBitsForOneMatrixAddresses + kBitsMatrixMultiplexing, false> aj_with_offset{
               adjusted_j};
+#ifdef THREE_WAY_INTERLEAVING
+          aj_with_offset[fpga_tools::CeilLog2(columns)] = bit_offset[0];
+          aj_with_offset[fpga_tools::CeilLog2(columns)+1] = bit_offset[1];
+#else
           aj_with_offset[fpga_tools::CeilLog2(columns)] = bit_offset;
-
+#endif
+          
           TT dp{0};
 
           column_tuple pipe_read, pipe_write;
@@ -171,12 +204,22 @@ struct StreamingQRD {
             if (adjusted_j == i - 1) {
               if (compute_a) {
                 a_i_m_1[k] = m_j;
-              } else {
+              } 
+#ifdef THREE_WAY_INTERLEAVING
+              else if (compute_c) {
+                c_i_m_1[k] = m_j;
+              } 
+#endif
+              else {
                 b_i_m_1[k] = m_j;
               }
             }
 
+#ifdef THREE_WAY_INTERLEAVING
+            TT i_m_1 = compute_a ? a_i_m_1[k] : (compute_b ? b_i_m_1[k] : c_i_m_1[k]);
+#else
             TT i_m_1 = compute_a ? a_i_m_1[k] : b_i_m_1[k];
+#endif
 
             TT mult_lhs = (i > 0) ? i_m_1 : TT{0};
             TT mult_rhs = (i > 0) ? s_or_ir_a[aj_with_offset] : TT{0};
@@ -202,7 +245,17 @@ struct StreamingQRD {
                 } else {
                   a_i[k] = m_j;
                 }
-              } else {
+              } 
+#ifdef THREE_WAY_INTERLEAVING
+              else if (compute_c) {
+                if constexpr (is_complex) {
+                  c_i[k] = m_j.conj();
+                } else {
+                  c_i[k] = m_j;
+                }
+              } 
+#endif
+              else {
                 if constexpr (is_complex) {
                   b_i[k] = m_j.conj();
                 } else {
@@ -211,7 +264,11 @@ struct StreamingQRD {
               }
             }
 
+#ifdef THREE_WAY_INTERLEAVING
+            TT dp_rhs = compute_a ? a_i[k] : (compute_b ? b_i[k] : c_i[k]);
+#else
             TT dp_rhs = compute_a ? a_i[k] : b_i[k];
+#endif
 
             dp += m_j * dp_rhs;
           });
@@ -233,7 +290,18 @@ struct StreamingQRD {
                 p_a = dp;
               }
               p = p_a;
-            } else {
+            } 
+#ifdef THREE_WAY_INTERLEAVING
+            else if (compute_c) {
+              if constexpr (is_complex) {
+                p_c = dp.r();
+              } else {
+                p_c = dp;
+              }
+              p = p_c;
+            } 
+#endif
+            else {
               if constexpr (is_complex) {
                 p_b = dp.r();
               } else {
@@ -249,7 +317,15 @@ struct StreamingQRD {
               ir_a = rsqrt;
               s_ir_val = ir_a;
               r_val = sqrt;
-            } else {
+            } 
+#ifdef THREE_WAY_INTERLEAVING
+            else if (compute_c) {
+              ir_c = rsqrt;
+              s_ir_val = ir_c;
+              r_val = sqrt;
+            } 
+#endif
+            else {
               ir_b = rsqrt;
               s_ir_val = ir_b;
               r_val = sqrt;
@@ -260,7 +336,14 @@ struct StreamingQRD {
             if (compute_a) {
               p = p_a;
               ir = ir_a;
-            } else {
+            } 
+#ifdef THREE_WAY_INTERLEAVING
+            else if (compute_c) {
+              p = p_c;
+              ir = ir_c;
+            } 
+#endif
+            else {
               p = p_b;
               ir = ir_b;
             }
@@ -278,7 +361,6 @@ struct StreamingQRD {
             // } else {
             //   r_index_b++;
             // }
-
             ROut::write(r_val);
 
             s_or_ir_a[aj_with_offset] = s_ir_val;
