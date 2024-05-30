@@ -20,6 +20,14 @@
 #define COLS_COMPONENT_V COLS_COMPONENT
 #endif
 
+#ifdef DOUBLE
+using TYPE = double;
+#else
+using TYPE = float;
+#endif
+
+
+
 /*
   COMPLEX, COLS_COMPONENT, ROWS_COMPONENT and FIXED_ITERATIONS are defined
   by the build system.
@@ -39,25 +47,25 @@
 */
 #if COMPLEX == 0
 // Real single precision floating-point QR Decomposition
-void QRDecomposition(std::vector<float> &a_matrix, std::vector<float> &q_matrix,
-                     std::vector<float> &r_matrix, sycl::queue &q,
+void QRDecomposition(std::vector<TYPE> &a_matrix, std::vector<TYPE> &q_matrix,
+                     std::vector<TYPE> &r_matrix, sycl::queue &q,
                      int matrix_count,
                      int repetitions) {
   constexpr bool is_complex = false;
   QRDecompositionImpl<COLS_COMPONENT_V, ROWS_COMPONENT_V, FIXED_ITERATIONS,
-                       is_complex, float>(a_matrix, q_matrix, r_matrix, q,
+                       is_complex, TYPE>(a_matrix, q_matrix, r_matrix, q,
                                           matrix_count, repetitions);
 }
 #else
 // Complex single precision floating-point QR Decomposition
-void QRDecomposition(std::vector<ac_complex<float> > &a_matrix,
-                     std::vector<ac_complex<float> > &q_matrix,
-                     std::vector<ac_complex<float> > &r_matrix, sycl::queue &q,
+void QRDecomposition(std::vector<ac_complex<TYPE> > &a_matrix,
+                     std::vector<ac_complex<TYPE> > &q_matrix,
+                     std::vector<ac_complex<TYPE> > &r_matrix, sycl::queue &q,
                      int matrix_count,
                      int repetitions) {
   constexpr bool is_complex = true;
   QRDecompositionImpl<COLS_COMPONENT_V, ROWS_COMPONENT_V, FIXED_ITERATIONS,
-                       is_complex, float>(a_matrix, q_matrix, r_matrix, q,
+                       is_complex, TYPE>(a_matrix, q_matrix, r_matrix, q,
                                           matrix_count, repetitions);
 }
 #endif
@@ -66,14 +74,14 @@ void QRDecomposition(std::vector<ac_complex<float> > &a_matrix,
   returns if both the real and complex parts of the given ac_complex
   value are finite
 */
-bool IsFinite(ac_complex<float> val) {
+bool IsFinite(ac_complex<TYPE> val) {
   return std::isfinite(val.r()) && std::isfinite(val.i());
 }
 
 /*
   returns if the given value is finite
 */
-bool IsFinite(float val) { return std::isfinite(val); }
+bool IsFinite(TYPE val) { return std::isfinite((double)val); }
 
 int main(int argc, char *argv[]) {
   constexpr size_t kRandomSeed = 1138;
@@ -137,7 +145,7 @@ int main(int argc, char *argv[]) {
               << std::endl;
 
     // Select a type for this compile depending on the value of COMPLEX
-    using T = std::conditional_t<kComplex, ac_complex<float>, float>;
+    using T = std::conditional_t<kComplex, ac_complex<TYPE>, TYPE>;
 
     // Create vectors to hold all the input and output matrices
     std::vector<T> a_matrix;
@@ -165,13 +173,13 @@ int main(int argc, char *argv[]) {
                                                                 matrix_index++){
       for (size_t row = 0; row < kRows; row++) {
         for (size_t col = 0; col < kColumns; col++) {
-          float random_real = rand() % (kRandomMax - kRandomMin) + kRandomMin;
+          TYPE random_real = rand() % (kRandomMax - kRandomMin) + kRandomMin;
   #if COMPLEX == 0
           a_matrix[matrix_index * kAMatrixSize
                  + col * kRows + row] = random_real;
   #else
-          float random_imag = rand() % (kRandomMax - kRandomMin) + kRandomMin;
-          ac_complex<float> random_complex{random_real, random_imag};
+          TYPE random_imag = rand() % (kRandomMax - kRandomMin) + kRandomMin;
+          ac_complex<TYPE> random_complex{random_real, random_imag};
           a_matrix[matrix_index * kAMatrixSize
                  + col * kRows + row] = random_complex;
   #endif
@@ -201,6 +209,12 @@ int main(int argc, char *argv[]) {
     std::cout << "Using the regular version of QRD." << std::endl; 
 #endif
 
+#ifdef DOUBLE
+    std::cout << "Using double precision floating-point datatype." << std::endl; 
+#else
+    std::cout << "Using single precision floating-point datatype." << std::endl; 
+#endif
+
     QRDecomposition(a_matrix, q_matrix, r_matrix, q, kMatricesToDecompose,
                                                                   repetitions);
 
@@ -214,10 +228,13 @@ int main(int argc, char *argv[]) {
 
     // Floating-point error threshold value at which we decide that the design
     // computed an incorrect value
-    constexpr float kErrorThreshold = 1e-4;
+    constexpr double kErrorThreshold = 1e-4;
+
     // The orthogonality check is more sensible to numerical error, the
     // threshold is then set a bit higher
-    float q_ortho_error_threshold = pow(2.0, -9);
+    TYPE q_ortho_error_threshold = pow(2.0, -9);
+
+
 
     // Check Q and R matrices
     std::cout << "Verifying results..." << std::endl;
@@ -320,47 +337,47 @@ int main(int argc, char *argv[]) {
           bool r_is_finite;
 
   #if COMPLEX == 0
-          q_r_eq_a = abs(a_matrix[matrix_index * kAMatrixSize
+          q_r_eq_a = abs((double)(a_matrix[matrix_index * kAMatrixSize
                                 + j * kRows + i]
-                       - q_r_ij) < kErrorThreshold;
+                       - q_r_ij)) < kErrorThreshold;
 
           qt_q_eq_id =
-                  ((i == j) && (abs(qt_q_ij - 1) < q_ortho_error_threshold)) ||
-                  ((i != j) && (abs(qt_q_ij) < q_ortho_error_threshold));
+                  ((i == j) && (abs((double)(qt_q_ij - 1)) < q_ortho_error_threshold)) ||
+                  ((i != j) && (abs((double)(qt_q_ij)) < q_ortho_error_threshold));
 
           q_qt_eq_id = !square_matrices ||
-                  (((i == j) && (abs(q_qt_ij - 1) < q_ortho_error_threshold)) ||
-                  ((i != j) && (abs(q_qt_ij) < q_ortho_error_threshold)));
+                  (((i == j) && (abs((double)(q_qt_ij - 1)) < q_ortho_error_threshold)) ||
+                  ((i != j) && (abs((double)(q_qt_ij)) < q_ortho_error_threshold)));
 
           r_is_upper_triang =
               (i >= kColumns) ||
-              ((i > j) && ((abs(r_matrix_op[i][j]) < kErrorThreshold))) ||
+              ((i > j) && ((abs((double)(r_matrix_op[i][j])) < kErrorThreshold))) ||
               ((i <= j));
 
   #else
-          q_r_eq_a = (abs(a_matrix[matrix_index * kAMatrixSize
+          q_r_eq_a = (abs((double)(a_matrix[matrix_index * kAMatrixSize
                                  + j * kRows + i].r() -
-                       q_r_ij.r()) < kErrorThreshold) &&
-                  (abs(a_matrix[matrix_index * kAMatrixSize
+                       q_r_ij.r())) < kErrorThreshold) &&
+                  (abs((double)(a_matrix[matrix_index * kAMatrixSize
                               + j * kRows + i].i() -
-                       q_r_ij.i()) < kErrorThreshold);
+                       q_r_ij.i())) < kErrorThreshold);
 
           qt_q_eq_id =
-              (((i == j) && (abs(qt_q_ij.r() - 1) < q_ortho_error_threshold)) ||
-(((i != j) || (j >= kRows)) && (abs(qt_q_ij.r()) < q_ortho_error_threshold))) &&
-              (abs(qt_q_ij.i()) < q_ortho_error_threshold);
+              (((i == j) && (abs((double)(qt_q_ij.r() - 1)) < q_ortho_error_threshold)) ||
+(((i != j) || (j >= kRows)) && (abs((double)(qt_q_ij.r())) < q_ortho_error_threshold))) &&
+              (abs((double)(qt_q_ij.i())) < q_ortho_error_threshold);
 
           q_qt_eq_id =
               !square_matrices ||
-            ((((i == j) && (abs(q_qt_ij.r() - 1) < q_ortho_error_threshold)) ||
+            ((((i == j) && (abs((double)(q_qt_ij.r() - 1)) < q_ortho_error_threshold)) ||
                 (((i != j) || (j >= kRows)) &&
-                 (abs(q_qt_ij.r()) < q_ortho_error_threshold))) &&
-               (abs(q_qt_ij.i()) < q_ortho_error_threshold));
+                 (abs((double)(q_qt_ij.r())) < q_ortho_error_threshold))) &&
+               (abs((double)(q_qt_ij.i())) < q_ortho_error_threshold));
 
           r_is_upper_triang =
               (i >= kColumns) ||
-              ((i > j) && ((abs(r_matrix_op[i][j].r()) < kErrorThreshold) &&
-                           (abs(r_matrix_op[i][j].i()) < kErrorThreshold))) ||
+              ((i > j) && ((abs((double)(r_matrix_op[i][j].r())) < kErrorThreshold) &&
+                           (abs((double)(r_matrix_op[i][j].i())) < kErrorThreshold))) ||
               (i <= j);
 
   #endif
