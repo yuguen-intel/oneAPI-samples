@@ -80,8 +80,6 @@ if(DEVICE_FLAG MATCHES "A10")
     set(COLS_B 64)
     set(TILE_A 8)
     set(TILE_B 8)
-    set(CLOCK_TARGET 360MHz)
-    set(SEED "-Xsseed=7")
 elseif(DEVICE_FLAG MATCHES "S10")
     # S10 parameters
     set(ROWS_A 64)
@@ -89,8 +87,6 @@ elseif(DEVICE_FLAG MATCHES "S10")
     set(COLS_B 64)
     set(TILE_A 8)
     set(TILE_B 8)
-    set(CLOCK_TARGET 480MHz)
-    set(SEED "-Xsseed=2")
 elseif(DEVICE_FLAG MATCHES "Agilex")
     # Agilex™ parameters
     set(ROWS_A 64)
@@ -98,14 +94,8 @@ elseif(DEVICE_FLAG MATCHES "Agilex")
     set(COLS_B 64)
     set(TILE_A 8)
     set(TILE_B 8)
-    set(CLOCK_TARGET 540MHz)
-    set(SEED "-Xsseed=5")
 else()
     message(FATAL_ERROR "An incorrect DEVICE_FLAG was given. Make sure you have set -DDEVICE_FLAG=A10, -DDEVICE_FLAG=S10 or -DDEVICE_FLAG=Agilex7.")
-endif()
-
-if(IGNORE_DEFAULT_SEED)
-    set(SEED "")
 endif()
 
 if(DEFINED SET_ROWS_A)
@@ -129,11 +119,10 @@ message(STATUS "COMMON=${COMMON}")
 message(STATUS "COLS_B=${COLS_B}")
 message(STATUS "TILE_A=${TILE_A}")
 message(STATUS "TILE_B=${TILE_B}")
-message(STATUS "SEED=${SEED}")
 
 # Use cmake -DUSER_FPGA_FLAGS=<flags> to set extra flags for FPGA backend
 # compilation. 
-set(USER_FPGA_FLAGS ${USER_FPGA_FLAGS};${SEED};-Xsclock=${CLOCK_TARGET})
+set(USER_FPGA_FLAGS ${USER_FPGA_FLAGS})
 
 # Use cmake -DUSER_FLAGS=<flags> to set extra flags for general compilation.
 set(USER_FLAGS ${USER_FLAGS};${EXTRA_COMPILE_FLAG};-DROWS_A=${ROWS_A};-DCOMMON=${COMMON};-DCOLS_B=${COLS_B};-DTILE_A=${TILE_A};-DTILE_B=${TILE_B};${BSP_FLAG})
