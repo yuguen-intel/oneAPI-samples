@@ -98,6 +98,10 @@ else()
     message(FATAL_ERROR "An incorrect DEVICE_FLAG was given. Make sure you have set -DDEVICE_FLAG=A10, -DDEVICE_FLAG=S10 or -DDEVICE_FLAG=Agilex7.")
 endif()
 
+if(IGNORE_DEFAULT_SEED)
+    set(SEED "")
+endif()
+
 if(DEFINED SET_ROWS_A)
     set(ROWS_A ${SET_ROWS_A})
 endif()
