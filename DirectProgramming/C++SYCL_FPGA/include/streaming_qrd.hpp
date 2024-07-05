@@ -113,7 +113,8 @@ struct StreamingQRD {
       [[intel::fpga_memory]] TT s_or_ir[columns];
 
       T p, ir;
-
+      // PRINTF("total iterations: %d\n", kTotalIterations);
+      // int bubble = 0;
 
       [[intel::initiation_interval(1)]]  // NO-FORMAT: Attribute
       [[intel::ivdep(raw_latency)]]      // NO-FORMAT: Attribute
@@ -135,6 +136,10 @@ struct StreamingQRD {
           //   pipe_read.template get<k>() = AIn::template PipeAt<k>::read();
           // });
         }
+
+        // if (j>= columns) {
+        //   bubble++;
+        // }
 
         fpga_tools::UnrolledLoop<rows>([&](auto k) {
           TT a_j;
@@ -240,6 +245,9 @@ struct StreamingQRD {
         }
 
       }  // end of s
+
+      // PRINTF("bubbles: %d\n", bubble);
+
     }
 
   }  // end of operator

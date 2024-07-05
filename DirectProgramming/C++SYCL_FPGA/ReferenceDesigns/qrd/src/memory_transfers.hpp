@@ -271,7 +271,16 @@ void MatrixReadPipeToDDR(
 #ifdef INTERLEAVED
         int base_addr = col / kInterleavingFactor;
 #ifdef THREE_WAY_INTERLEAVING
-        int offset = col%3 == 0 ? 0 : (col%3 == 1 ? columns : columns*2);
+        int offset;
+        if (col%3 == 0) {
+          offset = 0;
+        } 
+        else if (col%3 == 1) {
+          offset = columns;
+        }
+        else {
+          offset = columns*2;
+        }
 #else
         int offset = col%2 == 0 ? 0 : columns;
 #endif

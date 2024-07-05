@@ -96,7 +96,7 @@ elseif(DEVICE_FLAG MATCHES "Agilex7")
     set(COLS_COMPONENT 128)
     set(FIXED_ITERATIONS 85)
     set(COMPLEX 1)
-    set(CLOCK_TARGET "-Xsclock=520MHz")
+    set(CLOCK_TARGET "-Xsclock=580MHz")
     set(SEED "-Xsseed=5")
 else()
     message(FATAL_ERROR "Unreachable")
@@ -129,7 +129,10 @@ endif()
 if(DEFINED DOUBLE)
     set(DTYPE -DDOUBLE=1;-no-fma)
     message(STATUS "double floating-point datatype is being used as DOUBLE=${DOUBLE}")
+else()
+    set(HANDSHAKING -Xshyper-optimized-handshaking=off)
 endif()
+
 
 message(STATUS "ROWS_COMPONENT=${ROWS_COMPONENT}")
 message(STATUS "COLS_COMPONENT=${COLS_COMPONENT}")
@@ -142,7 +145,7 @@ message(STATUS "SEED=${SEED}")
 set(USER_FPGA_FLAGS ${USER_FPGA_FLAGS};${CLOCK_TARGET})
 
 # Use cmake -DUSER_FLAGS=<flags> to set extra flags for general compilation.
-set(USER_FLAGS ${USER_FLAGS};${EXTRA_COMPILE_FLAG};-fbracket-depth=512;${BSP_FLAG};-DFIXED_ITERATIONS=${FIXED_ITERATIONS} -DCOMPLEX=${COMPLEX};-DROWS_COMPONENT=${ROWS_COMPONENT};-DCOLS_COMPONENT=${COLS_COMPONENT};${INTERLEAVED};${DTYPE};-Xshyper-optimized-handshaking=off)
+set(USER_FLAGS ${USER_FLAGS};${EXTRA_COMPILE_FLAG};-fbracket-depth=512;${BSP_FLAG};-DFIXED_ITERATIONS=${FIXED_ITERATIONS} -DCOMPLEX=${COMPLEX};-DROWS_COMPONENT=${ROWS_COMPONENT};-DCOLS_COMPONENT=${COLS_COMPONENT};${INTERLEAVED};${DTYPE};${HANDSHAKING})
 
 # Use cmake -DUSER_INCLUDE_PATHS=<paths> to set extra paths for general
 # compilation.
